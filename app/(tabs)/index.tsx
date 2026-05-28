@@ -1,98 +1,208 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { Ionicons } from "@expo/vector-icons";
+import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 export default function HomeScreen() {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ScrollView className="flex-1 bg-sky-50 pt-14 px-5">
+      {/* --- BAGIAN HEADER PROFIL --- */}
+      <View className="flex-row justify-between items-center mb-8">
+        <View className="flex-row items-center">
+          <Image
+            source={{
+              uri: "https://ui-avatars.com/api/?name=Can&background=0b5394&color=fff&size=128",
+            }}
+            className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm"
+          />
+          <View>
+            <Text className="text-gray-600 text-sm font-medium">
+              Selamat Pagi,
+            </Text>
+            <Text className="text-xl font-extrabold text-gray-950">Can</Text>
+          </View>
+        </View>
+        <TouchableOpacity className="bg-white p-2 rounded-full shadow-sm border border-gray-200">
+          <Ionicons name="notifications-outline" size={22} color="#1f2937" />
+        </TouchableOpacity>
+      </View>
+      {/* --- AKHIR HEADER PROFIL --- */}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {/* --- BAGIAN CARD STATUS KEHADIRAN --- */}
+      <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
+        <View className="flex-row justify-between items-center mb-6">
+          <Text className="text-gray-800 text-base font-bold">
+            Status Kehadiran
+          </Text>
+          <View className="bg-sky-50 px-3 py-1 rounded-full">
+            <Text className="text-blue-600 font-semibold text-xs">
+              28 Mei 2026
+            </Text>
+          </View>
+        </View>
+        <View className="flex-row justify-between items-center">
+          <View>
+            <Text className="text-gray-500 text-xs mb-1">Jam Masuk</Text>
+            <Text className="text-gray-950 text-3xl font-extrabold">07:45</Text>
+          </View>
+          <View className="h-10 w-[1px] bg-gray-200" />
+          <View className="items-end">
+            <Text className="text-gray-500 text-xs mb-1">Jam Pulang</Text>
+            <Text className="text-gray-400 text-3xl font-extrabold">--:--</Text>
+          </View>
+        </View>
+      </View>
+      {/* --- AKHIR CARD STATUS --- */}
+
+      {/* --- BAGIAN MENU UTAMA (STYLE LIVIN') --- */}
+      {/* Semua menu sekarang dibungkus di dalam 1 Card Putih Besar */}
+      <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
+        {/* Header Wadah Menu (Ada teks "Atur" biru ala Livin) */}
+        <View className="flex-row justify-between items-center mb-6">
+          <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
+          <TouchableOpacity className="flex-row items-center">
+            <Text className="text-blue-500 font-semibold text-sm mr-1">
+              Atur
+            </Text>
+            <Ionicons name="options-outline" size={16} color="#3b82f6" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Grid Menu: Pakai flex-row dan w-1/4 biar sejajar 4 item */}
+        <View className="flex-row flex-wrap items-start">
+          {/* Menu 1: Absen Masuk */}
+          <TouchableOpacity className="w-1/4 items-center mb-5">
+            {/* Lingkaran Ikon (Tanpa shadow biar flat ala Livin) */}
+            <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+              <Ionicons name="log-in" size={24} color="#3b82f6" />
+            </View>
+            {/* Teks dibikin 2 baris pakai {'\n'} */}
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Absen{"\n"}Masuk
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menu 2: Absen Pulang */}
+          <TouchableOpacity className="w-1/4 items-center mb-5">
+            <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+              <Ionicons name="log-out" size={24} color="#3b82f6" />
+            </View>
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Absen{"\n"}Pulang
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menu 3: Izin & Cuti */}
+          <TouchableOpacity className="w-1/4 items-center mb-5">
+            <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
+              <Ionicons name="calendar" size={24} color="#f59e0b" />
+            </View>
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Izin &{"\n"}Cuti
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menu 4: Lembur */}
+          <TouchableOpacity className="w-1/4 items-center mb-5">
+            <View className="w-12 h-12 rounded-full bg-indigo-50 items-center justify-center mb-2">
+              <Ionicons name="moon" size={24} color="#6366f1" />
+            </View>
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Form{"\n"}Lembur
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menu 5: Slip Gaji */}
+          <TouchableOpacity className="w-1/4 items-center mb-2">
+            <View className="w-12 h-12 rounded-full bg-emerald-50 items-center justify-center mb-2">
+              <Ionicons name="cash" size={24} color="#10b981" />
+            </View>
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Slip{"\n"}Gaji
+            </Text>
+          </TouchableOpacity>
+
+          {/* Menu 6: Riwayat */}
+          <TouchableOpacity className="w-1/4 items-center mb-2">
+            <View className="w-12 h-12 rounded-full bg-gray-100 items-center justify-center mb-2">
+              <Ionicons name="time" size={24} color="#6b7280" />
+            </View>
+            <Text className="text-gray-600 text-xs text-center leading-tight">
+              Riwayat
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      {/* --- AKHIR MENU UTAMA --- */}
+      {/* --- BAGIAN BANNER PENGUMUMAN --- */}
+      <View className="mb-10">
+        {/* Header Section Banner */}
+        <View className="flex-row justify-between items-center mb-4">
+          <Text className="text-gray-900 font-bold text-lg">
+            Informasi Perusahaan
+          </Text>
+          <TouchableOpacity>
+            <Text className="text-blue-500 font-semibold text-sm">
+              Lihat Semua
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ScrollView Horizontal untuk Banner */}
+        {/* showsHorizontalScrollIndicator={false} biar garis scroll bawaan HP gak kelihatan */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="overflow-visible"
+        >
+          {/* Banner 1: Info Slip Gaji */}
+          <View className="bg-blue-600 w-72 p-5 rounded-3xl mr-4 shadow-md">
+            <View className="bg-blue-500/50 self-start px-2 py-1 rounded-md mb-3">
+              <Text className="text-white text-[10px] font-bold tracking-wider">
+                INFO HRD
+              </Text>
+            </View>
+            <Text className="text-white font-bold text-base mb-1">
+              Cek Slip Gaji Bulan Ini
+            </Text>
+            <Text className="text-blue-100 text-xs">
+              Slip gaji untuk periode Mei 2026 sudah dapat diunduh melalui
+              aplikasi.
+            </Text>
+          </View>
+
+          {/* Banner 2: Info Libur Nasional */}
+          <View className="bg-emerald-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
+            <View className="bg-emerald-400/50 self-start px-2 py-1 rounded-md mb-3">
+              <Text className="text-white text-[10px] font-bold tracking-wider">
+                PENGUMUMAN
+              </Text>
+            </View>
+            <Text className="text-white font-bold text-base mb-1">
+              Jadwal Libur Nasional
+            </Text>
+            <Text className="text-emerald-50 text-xs">
+              Pemberitahuan operasional PT. Citra Abadi Sejati Bogor selama
+              libur panjang akhir pekan.
+            </Text>
+          </View>
+
+          {/* Banner 3: Info Kesehatan (Hanya pelengkap agar bisa di-scroll) */}
+          <View className="bg-rose-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
+            <View className="bg-rose-400/50 self-start px-2 py-1 rounded-md mb-3">
+              <Text className="text-white text-[10px] font-bold tracking-wider">
+                KESEHATAN
+              </Text>
+            </View>
+            <Text className="text-white font-bold text-base mb-1">
+              Jadwal Medical Check Up
+            </Text>
+            <Text className="text-rose-50 text-xs">
+              Jangan lewatkan MCU tahunan yang akan diselenggarakan minggu depan
+              di klinik kantor.
+            </Text>
+          </View>
+        </ScrollView>
+      </View>
+      {/* --- AKHIR BANNER PENGUMUMAN --- */}
+    </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
