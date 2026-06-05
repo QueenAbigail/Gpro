@@ -1,11 +1,18 @@
 import { Stack } from "expo-router";
-import "../global.css"; // Ini wajib biar Tailwind jalan
+import "../global.css";
 
 export default function RootLayout() {
   return (
     <Stack>
-      {/* Ini nyuruh mesin masuk ke folder (tabs) sebagai halaman awal */}
+      {/* Tab utama */}
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+      {/* Folder patrol (udah aman) */}
+      <Stack.Screen name="patrol" options={{ headerShown: false }} />
+
+      {/* 👇 TAMBAHIN INI: Biar folder profile gak bikin header ganda 👇 */}
+      <Stack.Screen name="profile" options={{ headerShown: false }} />
+
       <Stack.Screen name="+not-found" />
     </Stack>
   );

@@ -37,11 +37,11 @@ export default function TabLayout() {
 
       {/* 2. KIRI KEDUA */}
       <Tabs.Screen
-        name="history"
+        name="patrol"
         options={{
-          title: "Riwayat",
+          title: "Patroli",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="time" size={24} color={color} />
+            <Ionicons name="binoculars" size={24} color={color} />
           ),
         }}
       />
@@ -66,11 +66,11 @@ export default function TabLayout() {
 
       {/* 4. KANAN PERTAMA */}
       <Tabs.Screen
-        name="inbox"
+        name="leave"
         options={{
-          title: "Pesan",
+          title: "Izin",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="mail" size={24} color={color} />
+            <Ionicons name="newspaper" size={24} color={color} />
           ),
         }}
       />
