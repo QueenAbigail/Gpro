@@ -2,11 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
-export default function LeaveScreen() {
+export default function LeaveHistoryScreen() {
   const router = useRouter();
 
-  // Dummy data untuk riwayat pengajuan (Disesuaikan dengan tipe baru)
-  const leaveHistory = [
+  // Dummy data yang lebih banyak untuk halaman riwayat lengkap
+  const fullHistory = [
     {
       id: "1",
       type: "Sakit",
@@ -30,6 +30,30 @@ export default function LeaveScreen() {
       duration: "1 Hari",
       status: "Ditolak",
       reason: "Keperluan mendadak",
+    },
+    {
+      id: "4",
+      type: "Sakit",
+      date: "10 April 2026",
+      duration: "2 Hari",
+      status: "Disetujui",
+      reason: "Gejala tifus, butuh istirahat",
+    },
+    {
+      id: "5",
+      type: "Izin",
+      date: "22 Maret 2026",
+      duration: "1 Hari",
+      status: "Disetujui",
+      reason: "Perpanjang STNK di Samsat",
+    },
+    {
+      id: "6",
+      type: "Tukeran Shift",
+      date: "05 Februari 2026",
+      duration: "Malam ke Pagi",
+      status: "Disetujui",
+      reason: "Kondisi badan kurang fit untuk begadang",
     },
   ];
 
@@ -63,74 +87,30 @@ export default function LeaveScreen() {
 
   return (
     <View className="flex-1 bg-slate-50">
-      {/* Custom Header */}
-      <View className="pt-16 pb-4 px-6 bg-white border-b border-slate-100 shadow-sm z-10">
-        <Text className="text-2xl font-bold text-slate-800">Perizinan</Text>
-        <Text className="text-slate-500 mt-1">
-          Buat pengajuan sakit, izin, atau tukar shift
-        </Text>
+      {/* Header */}
+      <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-slate-100 shadow-sm z-10">
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="w-10 h-10 bg-slate-50 rounded-full items-center justify-center mr-4 active:bg-slate-100"
+        >
+          <Ionicons name="arrow-back" size={20} color="#334155" />
+        </TouchableOpacity>
+        <View>
+          <Text className="text-xl font-bold text-slate-800">
+            Riwayat Pengajuan
+          </Text>
+          <Text className="text-slate-500 text-xs mt-0.5">
+            Seluruh data sakit, izin, & tukar shift
+          </Text>
+        </View>
       </View>
 
+      {/* List History Full */}
       <ScrollView
         className="flex-1 px-6 pt-6"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* Quick Actions (Tombol Pengajuan) */}
-        <Text className="text-slate-800 font-bold text-lg mb-4">
-          Buat Pengajuan Baru
-        </Text>
-        <View className="flex-row justify-between mb-8">
-          {/* Tombol Sakit */}
-          <TouchableOpacity
-            onPress={() => router.push("/leave/sakit")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3 active:bg-slate-50"
-          >
-            <View className="w-12 h-12 bg-red-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="medkit" size={24} color="#ef4444" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm">Sakit</Text>
-          </TouchableOpacity>
-
-          {/* Tombol Izin */}
-          <TouchableOpacity
-            onPress={() => router.push("/leave/izin")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3 active:bg-slate-50"
-          >
-            <View className="w-12 h-12 bg-amber-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="document-text" size={24} color="#f59e0b" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm">Izin</Text>
-          </TouchableOpacity>
-
-          {/* Tombol Tukeran Shift */}
-          <TouchableOpacity
-            onPress={() => router.push("/leave/tukar-shift")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3 active:bg-slate-50"
-          >
-            <View className="w-12 h-12 bg-blue-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="swap-horizontal" size={24} color="#3b82f6" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm text-center">
-              Tukar Shift
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Riwayat Pengajuan */}
-        <View className="flex-row justify-between items-center mb-4">
-          <Text className="text-slate-800 font-bold text-lg">
-            Riwayat Pengajuan
-          </Text>
-          {/* BAGIAN INI YANG UDAH DIBENERIN */}
-          <TouchableOpacity onPress={() => router.push("/leave/history")}>
-            <Text className="text-blue-500 font-semibold text-sm">
-              Lihat Semua
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* List History */}
-        {leaveHistory.map((item) => {
+        {fullHistory.map((item) => {
           const statusStyle = getStatusStyle(item.status);
           return (
             <TouchableOpacity

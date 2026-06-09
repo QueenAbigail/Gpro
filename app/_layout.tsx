@@ -7,11 +7,13 @@ export default function RootLayout() {
       {/* Tab utama */}
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-      {/* Folder patrol (udah aman) */}
+      {/* Folder lain yang udah aman */}
       <Stack.Screen name="patrol" options={{ headerShown: false }} />
-
-      {/* 👇 TAMBAHIN INI: Biar folder profile gak bikin header ganda 👇 */}
       <Stack.Screen name="profile" options={{ headerShown: false }} />
+      <Stack.Screen name="leave" options={{ headerShown: false }} />
+
+      {/* 👇 TAMBAHIN INI BIAR HEADER FOLDER BERANDA HILANG TOTAL 👇 */}
+      <Stack.Screen name="beranda" options={{ headerShown: false }} />
 
       <Stack.Screen name="+not-found" />
     </Stack>

@@ -67,7 +67,10 @@ export default function ProfileScreen() {
         Pengaturan Akun
       </Text>
 
-      <TouchableOpacity className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100">
+      <TouchableOpacity
+        onPress={() => router.push("/profile/account-info")}
+        className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100"
+      >
         <View className="flex-row items-center">
           <View className="w-10 h-10 bg-blue-50 rounded-full items-center justify-center mr-3">
             <Ionicons name="person-circle" size={20} color="#3b82f6" />
@@ -77,7 +80,10 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
-      <TouchableOpacity className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100">
+      <TouchableOpacity
+        onPress={() => router.push("/profile/change-password")} // <-- Tambahin ini
+        className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100"
+      >
         <View className="flex-row items-center">
           <View className="w-10 h-10 bg-slate-100 rounded-full items-center justify-center mr-3">
             <Ionicons name="lock-closed" size={20} color="#64748b" />
@@ -87,7 +93,10 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
-      <TouchableOpacity className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-8 border border-slate-100">
+      <TouchableOpacity
+        onPress={() => router.push("/profile/notifications")} // <-- Sambungkan ke sini
+        className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-8 border border-slate-100"
+      >
         <View className="flex-row items-center">
           <View className="w-10 h-10 bg-slate-100 rounded-full items-center justify-center mr-3">
             <Ionicons name="notifications" size={20} color="#64748b" />

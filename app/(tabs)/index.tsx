@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router"; // <-- Tambahan import router
 import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 export default function HomeScreen() {
+  const router = useRouter(); // <-- Inisialisasi router
+
   return (
     <ScrollView className="flex-1 bg-sky-50 pt-14 px-5">
       {/* --- BAGIAN HEADER PROFIL --- */}
@@ -20,7 +23,11 @@ export default function HomeScreen() {
             <Text className="text-xl font-extrabold text-gray-950">Can</Text>
           </View>
         </View>
-        <TouchableOpacity className="bg-white p-2 rounded-full shadow-sm border border-gray-200">
+        {/* Tambahan onPress untuk mengarahkan ke halaman notifikasi */}
+        <TouchableOpacity
+          onPress={() => router.push("/profile/notifications")}
+          className="bg-white p-2 rounded-full shadow-sm border border-gray-200"
+        >
           <Ionicons name="notifications-outline" size={22} color="#1f2937" />
         </TouchableOpacity>
       </View>
@@ -53,9 +60,7 @@ export default function HomeScreen() {
       {/* --- AKHIR CARD STATUS --- */}
 
       {/* --- BAGIAN MENU UTAMA (STYLE LIVIN') --- */}
-      {/* Semua menu sekarang dibungkus di dalam 1 Card Putih Besar */}
       <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
-        {/* Header Wadah Menu (Ada teks "Atur" biru ala Livin) */}
         <View className="flex-row justify-between items-center mb-6">
           <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
           <TouchableOpacity className="flex-row items-center">
@@ -66,22 +71,23 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Grid Menu: Pakai flex-row dan w-1/4 biar sejajar 4 item */}
         <View className="flex-row flex-wrap items-start">
-          {/* Menu 1: Absen Masuk */}
-          <TouchableOpacity className="w-1/4 items-center mb-5">
-            {/* Lingkaran Ikon (Tanpa shadow biar flat ala Livin) */}
+          <TouchableOpacity
+            onPress={() => router.push("/beranda/absen/masuk")}
+            className="w-1/4 items-center mb-5"
+          >
             <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
               <Ionicons name="log-in" size={24} color="#3b82f6" />
             </View>
-            {/* Teks dibikin 2 baris pakai {'\n'} */}
             <Text className="text-gray-600 text-xs text-center leading-tight">
               Absen{"\n"}Masuk
             </Text>
           </TouchableOpacity>
 
-          {/* Menu 2: Absen Pulang */}
-          <TouchableOpacity className="w-1/4 items-center mb-5">
+          <TouchableOpacity
+            onPress={() => router.push("/beranda/absen/pulang")}
+            className="w-1/4 items-center mb-5"
+          >
             <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
               <Ionicons name="log-out" size={24} color="#3b82f6" />
             </View>
@@ -90,7 +96,6 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Menu 3: Izin & Cuti */}
           <TouchableOpacity className="w-1/4 items-center mb-5">
             <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
               <Ionicons name="calendar" size={24} color="#f59e0b" />
@@ -100,7 +105,6 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Menu 4: Lembur */}
           <TouchableOpacity className="w-1/4 items-center mb-5">
             <View className="w-12 h-12 rounded-full bg-indigo-50 items-center justify-center mb-2">
               <Ionicons name="moon" size={24} color="#6366f1" />
@@ -110,7 +114,6 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Menu 5: Slip Gaji */}
           <TouchableOpacity className="w-1/4 items-center mb-2">
             <View className="w-12 h-12 rounded-full bg-emerald-50 items-center justify-center mb-2">
               <Ionicons name="cash" size={24} color="#10b981" />
@@ -120,7 +123,6 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Menu 6: Riwayat */}
           <TouchableOpacity className="w-1/4 items-center mb-2">
             <View className="w-12 h-12 rounded-full bg-gray-100 items-center justify-center mb-2">
               <Ionicons name="time" size={24} color="#6b7280" />
@@ -132,9 +134,9 @@ export default function HomeScreen() {
         </View>
       </View>
       {/* --- AKHIR MENU UTAMA --- */}
+
       {/* --- BAGIAN BANNER PENGUMUMAN --- */}
       <View className="mb-10">
-        {/* Header Section Banner */}
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-gray-900 font-bold text-lg">
             Informasi Perusahaan
@@ -146,14 +148,11 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ScrollView Horizontal untuk Banner */}
-        {/* showsHorizontalScrollIndicator={false} biar garis scroll bawaan HP gak kelihatan */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           className="overflow-visible"
         >
-          {/* Banner 1: Info Slip Gaji */}
           <View className="bg-blue-600 w-72 p-5 rounded-3xl mr-4 shadow-md">
             <View className="bg-blue-500/50 self-start px-2 py-1 rounded-md mb-3">
               <Text className="text-white text-[10px] font-bold tracking-wider">
@@ -169,7 +168,6 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Banner 2: Info Libur Nasional */}
           <View className="bg-emerald-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
             <View className="bg-emerald-400/50 self-start px-2 py-1 rounded-md mb-3">
               <Text className="text-white text-[10px] font-bold tracking-wider">
@@ -185,7 +183,6 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Banner 3: Info Kesehatan (Hanya pelengkap agar bisa di-scroll) */}
           <View className="bg-rose-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
             <View className="bg-rose-400/50 self-start px-2 py-1 rounded-md mb-3">
               <Text className="text-white text-[10px] font-bold tracking-wider">
