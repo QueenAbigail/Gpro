@@ -2,13 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+// 👇 WAJIB IMPORT SUPABASE DI SINI
+import { supabase } from "../../lib/supabase";
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -26,31 +29,79 @@ export default function ChangePasswordScreen() {
   // State loading saat submit
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSavePassword = () => {
-    // Validasi basic sebelum nembak ke database
+  // 👇 FUNGSI INI UDAH DIUBAH JADI ASYNC BUAT NEMBAK DATABASE
+  const handleSavePassword = async () => {
+    // 1. Validasi basic sebelum nembak ke database
     if (!oldPassword || !newPassword || !confirmPassword) {
-      alert("Semua kolom password harus diisi!");
+      Alert.alert("Perhatian", "Semua kolom password harus diisi!");
       return;
     }
     if (newPassword !== confirmPassword) {
-      alert("Password baru dan konfirmasi password tidak cocok!");
+      Alert.alert(
+        "Perhatian",
+        "Password baru dan konfirmasi password tidak cocok!",
+      );
       return;
     }
     if (newPassword.length < 6) {
-      alert("Password baru minimal 6 karakter!");
+      Alert.alert("Perhatian", "Password baru minimal 6 karakter!");
       return;
     }
 
     setIsLoading(true);
 
-    // Simulasi proses update ke database/Supabase
-    setTimeout(() => {
-      setIsLoading(false);
-      alert(
+    try {
+      // 2. Ambil data sesi user yang lagi login sekarang buat dapet emailnya
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError || !authData.user?.email) {
+        throw new Error(
+          "Gagal memverifikasi sesi pengguna. Silakan login ulang.",
+        );
+      }
+
+      const userEmail = authData.user.email;
+
+      // 3. Verifikasi Password Lama (Login Ulang Diam-diam)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userEmail,
+        password: oldPassword,
+      });
+
+      if (signInError) {
+        throw new Error("Password saat ini yang Anda masukkan salah!");
+      }
+
+      // 4. Kalau password lama bener, baru Update Password Baru
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // 5. Sukses!
+      Alert.alert(
+        "Berhasil",
         "Password berhasil diperbarui! Silakan gunakan password baru untuk login berikutnya.",
       );
+
+      // Bersihin form biar rapi sebelum balik
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+
       router.back();
-    }, 2000);
+    } catch (error: any) {
+      Alert.alert(
+        "Gagal Menyimpan",
+        error.message || "Terjadi kesalahan sistem.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

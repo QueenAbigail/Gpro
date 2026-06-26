@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import { Alert, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { supabase } from "../../lib/supabase"; // Pastikan path ini benar
 
 export default function AccountInfoScreen() {
   const router = useRouter();
@@ -9,41 +10,82 @@ export default function AccountInfoScreen() {
   // State untuk nyimpen status apakah data rekening mau ditampilkan atau disembunyikan
   const [isBankVisible, setIsBankVisible] = useState(false);
 
-  // Dummy data lengkap
-  const accountData = {
-    // Karyawan
-    employeeId: "CAS-2026-001",
-    joinDate: "15 Januari 2026",
+  // State untuk nyimpen data dari Supabase
+  const [loading, setLoading] = useState(true);
+  const [dbUser, setDbUser] = useState<any>(null);
 
-    // Kontak
-    personalEmail: "adi.candra.personal@email.com",
-    phoneNumber: "+62 812 3456 7890",
-    address: "Bogor, Jawa Barat",
+  // Fungsi fetch dengan gerbang cache
+  const fetchAccountInfo = async (isManual = false) => {
+    // GERBANG TOL CACHE: Kalau bukan fetch manual dan data udah ada, skip!
+    if (!isManual && dbUser) {
+      console.log("Data akun udah di cache, skip fetch!");
+      return;
+    }
 
-    // Pribadi
-    fullName: "Adi Candra Listiawan",
-    birthPlaceDate: "Bogor, 17 Agustus 1998",
-    gender: "Laki-laki",
-    religion: "Islam",
-    bloodType: "O",
-    maritalStatus: "Belum Kawin",
+    try {
+      setLoading(true);
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
 
-    // Legal
-    ktp: "3201234567890001",
-    bpjs: "0001234567890",
-    npwp: "12.345.678.9-123.000",
+      if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
 
-    // Rekening / Payroll
-    bankAccount: {
-      bankName: "Bank Central Asia (BCA)",
-      accountName: "Adi Candra Listiawan",
-      accountNumber: "8765432109",
-    },
+      // 👇 Nanti lu tinggal ubah bagian select() ini kalau ada join tabel dll
+      const { data: accountData, error: accountError } = await supabase
+        .from("users")
+        .select(`*`)
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (accountError) throw accountError;
+
+      setDbUser(accountData);
+    } catch (error: any) {
+      Alert.alert(
+        "Error",
+        error.message || "Gagal memuat data informasi akun.",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Trigger otomatis setiap kali halaman dibuka (tapi ketahan gerbang cache kalau udah ada)
+  useFocusEffect(
+    useCallback(() => {
+      fetchAccountInfo();
+    }, [dbUser]),
+  );
 
   // Fungsi buat bikin teks jadi bintang-bintang (sensor) kalau lagi disembunyikan
   const renderSecureText = (text: string) => {
+    if (loading) return "Memuat...";
+    if (!text) return "Belum ada data";
     return isBankVisible ? text : "••••••••••••••••";
+  };
+
+  // 👇 NAH, TARUH DI SINI PAS DI BAWAHNYA, CAN!
+  const formatTempatTanggalLahir = (city?: string, date?: string) => {
+    if (loading) return "Memuat...";
+    if (!city && !date) return "Belum ada data";
+
+    let formattedDate = date;
+
+    if (date) {
+      const d = new Date(date);
+      if (!isNaN(d.getTime())) {
+        formattedDate = d.toLocaleDateString("id-ID", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+    }
+
+    if (city && formattedDate) {
+      return `${city}, ${formattedDate}`;
+    }
+
+    return city || formattedDate || "Belum ada data";
   };
 
   return (
@@ -67,10 +109,15 @@ export default function AccountInfoScreen() {
         Data Perusahaan
       </Text>
       <View className="bg-white rounded-2xl shadow-sm border border-slate-100 p-2 mb-6">
-        <InfoItem label="ID Karyawan" value={accountData.employeeId} />
+        <InfoItem
+          label="ID Karyawan"
+          value={
+            loading ? "Memuat..." : dbUser?.employeeCode || "Belum ada data"
+          }
+        />
         <InfoItem
           label="Tanggal Bergabung"
-          value={accountData.joinDate}
+          value={loading ? "Memuat..." : dbUser?.joinDate || "Belum ada data"}
           isLast
         />
       </View>
@@ -80,17 +127,34 @@ export default function AccountInfoScreen() {
         Data Pribadi
       </Text>
       <View className="bg-white rounded-2xl shadow-sm border border-slate-100 p-2 mb-6">
-        <InfoItem label="Nama Lengkap" value={accountData.fullName} />
+        <InfoItem
+          label="Nama Lengkap"
+          value={loading ? "Memuat..." : dbUser?.name || "Belum ada data"}
+        />
         <InfoItem
           label="Tempat, Tanggal Lahir"
-          value={accountData.birthPlaceDate}
+          value={
+            (loading ? "Memuat..." : dbUser?.birthCity,
+            dbUser?.birthDate || "Belum ada data")
+          }
         />
-        <InfoItem label="Jenis Kelamin" value={accountData.gender} />
-        <InfoItem label="Agama" value={accountData.religion} />
-        <InfoItem label="Golongan Darah" value={accountData.bloodType} />
+        <InfoItem
+          label="Jenis Kelamin"
+          value={loading ? "Memuat..." : dbUser?.gender || "Belum ada data"}
+        />
+        <InfoItem
+          label="Agama"
+          value={loading ? "Memuat..." : dbUser?.religion || "Belum ada data"}
+        />
+        <InfoItem
+          label="Golongan Darah"
+          value={loading ? "Memuat..." : dbUser?.bloodType || "Belum ada data"}
+        />
         <InfoItem
           label="Status Pernikahan"
-          value={accountData.maritalStatus}
+          value={
+            loading ? "Memuat..." : dbUser?.maritalStatus || "Belum ada data"
+          }
           isLast
         />
       </View>
@@ -100,9 +164,23 @@ export default function AccountInfoScreen() {
         Kontak & Domisili
       </Text>
       <View className="bg-white rounded-2xl shadow-sm border border-slate-100 p-2 mb-6">
-        <InfoItem label="Personal Email" value={accountData.personalEmail} />
-        <InfoItem label="Nomor Telepon" value={accountData.phoneNumber} />
-        <InfoItem label="Alamat Domisili" value={accountData.address} isLast />
+        <InfoItem
+          label="Personal Email"
+          value={
+            loading ? "Memuat..." : dbUser?.personalEmail || "Belum ada data"
+          }
+        />
+        <InfoItem
+          label="Nomor Telepon"
+          value={
+            loading ? "Memuat..." : dbUser?.phoneNumber || "Belum ada data"
+          }
+        />
+        <InfoItem
+          label="Alamat Domisili"
+          value={loading ? "Memuat..." : dbUser?.address || "Belum ada data"}
+          isLast
+        />
       </View>
 
       {/* 4. Kategori Legal & Administrasi */}
@@ -110,9 +188,19 @@ export default function AccountInfoScreen() {
         Legal & Administrasi
       </Text>
       <View className="bg-white rounded-2xl shadow-sm border border-slate-100 p-2 mb-6">
-        <InfoItem label="Nomor KTP" value={accountData.ktp} />
-        <InfoItem label="Nomor BPJS" value={accountData.bpjs} />
-        <InfoItem label="Nomor NPWP" value={accountData.npwp} isLast />
+        <InfoItem
+          label="Nomor KTP"
+          value={loading ? "Memuat..." : dbUser?.ktpNumber || "Belum ada data"}
+        />
+        <InfoItem
+          label="Nomor BPJS"
+          value={loading ? "Memuat..." : dbUser?.bpjsNumber || "Belum ada data"}
+        />
+        <InfoItem
+          label="Nomor NPWP"
+          value={loading ? "Memuat..." : dbUser?.npwpNumber || "Belum ada data"}
+          isLast
+        />
       </View>
 
       {/* 5. Kategori Rekening / Payroll (Dengan Fitur Sensor) */}
@@ -137,18 +225,31 @@ export default function AccountInfoScreen() {
       <View className="bg-white rounded-2xl shadow-sm border border-slate-100 p-2 mb-6">
         <InfoItem
           label="Nama Bank"
-          value={renderSecureText(accountData.bankAccount.bankName)}
+          value={renderSecureText(dbUser?.bankName)}
         />
         <InfoItem
           label="Nama Nasabah"
-          value={renderSecureText(accountData.bankAccount.accountName)}
+          value={renderSecureText(dbUser?.accountHolder)}
         />
         <InfoItem
           label="Nomor Rekening"
-          value={renderSecureText(accountData.bankAccount.accountNumber)}
+          value={renderSecureText(dbUser?.accountNumber)}
           isLast
         />
       </View>
+
+      {/* 👇 Tombol DEV - Cuma muncul kalau user ini SUPER_ADMIN atau ADMIN */}
+      {(dbUser?.role === "SUPER_ADMIN" || dbUser?.role === "ADMIN") && (
+        <TouchableOpacity
+          onPress={() => fetchAccountInfo(true)} // parameter true buat maksa nembus cache
+          className="bg-indigo-100 border border-indigo-200 py-4 rounded-xl items-center justify-center mb-6 flex-row border-dashed"
+        >
+          <Ionicons name="bug-outline" size={20} color="#4338ca" />
+          <Text className="text-indigo-700 font-bold ml-2">
+            [DEV] Tarik Ulang Data Akun
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Banner Info Tambahan */}
       <View className="bg-blue-50 rounded-2xl p-5 border border-blue-100 flex-row items-center mb-4">

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Pastikan path ini benar
+import { supabase } from "../../lib/supabase";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -18,18 +18,14 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [dbUser, setDbUser] = useState<any>(null);
 
-  // Data statis sementara untuk kolom yang belum ada di database
-  const staticData = {
-    role: "Software Developer",
-    client: "PT. Citra Abadi Sejati",
-    site: "Bogor - Head Office",
-  };
+  // Parameter isManual dipakai biar tombol DEV bisa maksa lewatin cache
+  const fetchUserProfile = async (isManual = false) => {
+    // GERBANG TOL CACHE: Kalau bukan fetch manual dan data udah ada, skip!
+    if (!isManual && dbUser) {
+      console.log("Data udah ada di cache memori, skip fetch Supabase!");
+      return;
+    }
 
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
-
-  const fetchUserProfile = async () => {
     try {
       setLoading(true);
       const { data: authData, error: authError } =
@@ -39,9 +35,19 @@ export default function ProfileScreen() {
 
       const { data: profileData, error: profileError } = await supabase
         .from("users")
-        .select("*")
+        .select(
+          `
+          *,
+          companies (
+            name
+          ),
+          sites (
+            name
+          )
+        `,
+        )
         .eq("id", authData.user.id)
-        .single();
+        .maybeSingle();
 
       if (profileError) throw profileError;
 
@@ -52,6 +58,13 @@ export default function ProfileScreen() {
       setLoading(false);
     }
   };
+
+  // Trigger otomatis setiap kali tab Profil dibuka (tapi ketahan gerbang cache kalau udah ada)
+  useFocusEffect(
+    useCallback(() => {
+      fetchUserProfile();
+    }, [dbUser]),
+  );
 
   // Fungsi buat jalanin Logout
   const handleLogout = async () => {
@@ -68,6 +81,8 @@ export default function ProfileScreen() {
             if (error) {
               Alert.alert("Gagal Logout", error.message);
             } else {
+              // Hapus cache lokal sebelum pindah ke halaman login
+              setDbUser(null);
               router.replace("/login");
             }
           },
@@ -95,8 +110,9 @@ export default function ProfileScreen() {
           </Text>
         )}
 
+        {/* 👇 INI YANG BIKIN JABATAN MUNCUL: Diganti jadi dbUser?.role */}
         <Text className="text-slate-500 font-medium mb-4">
-          {staticData.role}
+          {dbUser?.position || "Jabatan Tidak Tersedia"}
         </Text>
 
         <TouchableOpacity
@@ -106,6 +122,19 @@ export default function ProfileScreen() {
           <Ionicons name="camera" size={16} color="white" />
           <Text className="text-white font-bold ml-2 text-sm">Ganti Foto</Text>
         </TouchableOpacity>
+
+        {/* 👇 Tombol DEV - Cuma muncul kalau user ini SUPER_ADMIN atau ADMIN */}
+        {(dbUser?.role === "SUPER_ADMIN" || dbUser?.role === "ADMIN") && (
+          <TouchableOpacity
+            onPress={() => fetchUserProfile(true)} // parameter true buat maksa nembus cache
+            className="bg-indigo-100 border border-indigo-200 py-2 px-4 rounded-xl items-center justify-center mt-4 flex-row border-dashed"
+          >
+            <Ionicons name="bug-outline" size={16} color="#4338ca" />
+            <Text className="text-indigo-700 font-bold ml-2 text-sm">
+              [DEV] Tarik Data Manual
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 mb-6">
@@ -131,7 +160,9 @@ export default function ProfileScreen() {
             Client
           </Text>
           <Text className="text-slate-800 text-base font-semibold">
-            {staticData.client}
+            {loading
+              ? "Memuat..."
+              : dbUser?.companies?.name || "Belum ada data"}
           </Text>
         </View>
         <View>
@@ -139,7 +170,7 @@ export default function ProfileScreen() {
             Site Penempatan
           </Text>
           <Text className="text-slate-800 text-base font-semibold">
-            {staticData.site}
+            {loading ? "Memuat..." : dbUser?.sites?.name || "Belum ada data"}
           </Text>
         </View>
       </View>
@@ -148,6 +179,7 @@ export default function ProfileScreen() {
         Pengaturan Akun
       </Text>
 
+      {/* 👇 Tombol Informasi Akun udah dibalikin normal */}
       <TouchableOpacity
         onPress={() => router.push("/profile/account-info" as any)}
         className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100"
@@ -187,7 +219,6 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
-      {/* 👇 Tombol Logout sudah disambungkan ke fungsi handleLogout */}
       <TouchableOpacity
         onPress={handleLogout}
         className="flex-row items-center justify-center py-6 border-t border-slate-100 mt-4"
