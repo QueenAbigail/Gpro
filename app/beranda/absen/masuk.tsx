@@ -55,6 +55,13 @@ export default function AbsenMasukScreen() {
     null,
   );
 
+  // State Pencegahan Double Absen & Akses Admin
+  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false); // ✅ State untuk cek role Admin
+
+  // State Riwayat Kehadiran Asli
+  const [absenHistory, setAbsenHistory] = useState<any[]>([]);
+
   // State Kamera & Foto
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -63,6 +70,91 @@ export default function AbsenMasukScreen() {
 
   const cameraRef = useRef<any>(null);
   const watermarkRef = useRef<View>(null);
+
+  // Fungsi Tarik Riwayat Absen dari Supabase
+  const fetchHistory = async () => {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+
+      // Ambil tanggal 7 hari ke belakang buat filter
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const startDateString = sevenDaysAgo.toISOString().split("T")[0];
+
+      // Tarik data dari database
+      const { data, error } = await supabase
+        .from("attendances")
+        .select("id, date, actualCheckIn, locationId")
+        .eq("userId", authData.user.id)
+        .gte("date", startDateString)
+        .order("date", { ascending: false }); // Yg paling baru di atas
+
+      if (error) throw error;
+
+      if (data) {
+        const formattedHistory = data.map((item) => {
+          // Format Tanggal
+          const d = new Date(item.date);
+          const bulanIndo = [
+            "Januari",
+            "Februari",
+            "Maret",
+            "April",
+            "Mei",
+            "Juni",
+            "Juli",
+            "Agustus",
+            "September",
+            "Oktober",
+            "November",
+            "Desember",
+          ];
+          const dateString = `${d.getDate()} ${
+            bulanIndo[d.getMonth()]
+          } ${d.getFullYear()}`;
+
+          // Format Jam & Nentuin Status
+          let timeString = "-";
+          let statusText = "Belum Absen";
+
+          if (item.actualCheckIn) {
+            const checkIn = new Date(item.actualCheckIn);
+            const h = checkIn.getHours().toString().padStart(2, "0");
+            const m = checkIn.getMinutes().toString().padStart(2, "0");
+            timeString = `${h}:${m}`;
+
+            // Asumsi sementara: absen sebelum jam 08:00 tepat waktu, lewat = terlambat
+            if (
+              checkIn.getHours() < 8 ||
+              (checkIn.getHours() === 8 && checkIn.getMinutes() === 0)
+            ) {
+              statusText = "Tepat Waktu";
+            } else {
+              statusText = "Terlambat";
+            }
+          }
+
+          const typeText =
+            !item.locationId || item.locationId === "MOBILE_LOC"
+              ? "Mobile GPS"
+              : "Di Lokasi";
+
+          return {
+            id: item.id,
+            date: dateString,
+            time: timeString,
+            status: statusText,
+            type: typeText,
+          };
+        });
+
+        setAbsenHistory(formattedHistory);
+      }
+    } catch (error) {
+      console.log("Gagal narik riwayat absen:", error);
+    }
+  };
 
   // Fungsi Validasi Lokasi
   const validateLocation = async () => {
@@ -82,30 +174,39 @@ export default function AbsenMasukScreen() {
 
       setLocationMessage("Memeriksa profil & jadwal...");
 
-      // 1. Ambil Sesi User & Cek Kolom allowMobileAttendance
+      // 1. Ambil Sesi User & Cek Kolom allowMobileAttendance DAN role
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
 
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("siteId, allowMobileAttendance") // ✅ Udah disesuaikan dengan nama kolommu
+        .select("siteId, allowMobileAttendance, role") // ✅ Tarik kolom role
         .eq("id", authData.user.id)
         .maybeSingle();
 
       if (userError) throw userError;
 
+      // ✅ Cek apakah user ini adalah Admin
+      if (userData?.role === "SUPER_ADMIN" || userData?.role === "SUPER_ADMIN") {
+        setIsAdmin(true);
+      }
+
       // 2. Ambil data attendance hari ini yang udah digenerate sama schedule
       const todayString = new Date().toISOString().split("T")[0];
       const { data: attendanceData, error: attError } = await supabase
         .from("attendances")
-        .select("id")
+        .select("id, actualCheckIn")
         .eq("userId", authData.user.id)
         .eq("date", todayString)
         .maybeSingle();
 
       if (attendanceData) {
         setCurrentAttendanceId(attendanceData.id);
+        // Cek apakah hari ini sudah ada jam absennya
+        if (attendanceData.actualCheckIn) {
+          setHasCheckedIn(true);
+        }
       }
 
       // 3. Eksekusi Logika Percabangan allowMobileAttendance
@@ -159,6 +260,7 @@ export default function AbsenMasukScreen() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     validateLocation();
+    fetchHistory();
     return () => clearInterval(timer);
   }, []);
 
@@ -171,16 +273,6 @@ export default function AbsenMasukScreen() {
   const month = (timeToDisplay.getMonth() + 1).toString().padStart(2, "0");
   const year = timeToDisplay.getFullYear();
   const formattedDate = `${day}/${month}/${year}`;
-
-  const absenHistory = [
-    {
-      id: "1",
-      date: "27 Mei 2026",
-      time: "07:42",
-      status: "Tepat Waktu",
-      type: "Manual GPS",
-    },
-  ];
 
   const handleBukaKamera = async () => {
     if (!isLocationValid) {
@@ -221,7 +313,6 @@ export default function AbsenMasukScreen() {
   };
 
   // 🔥 PROSES KIRIM DATA REAL KE SUPABASE STORAGE & DATABASE
-  // 🔥 PROSES KIRIM DATA REAL KE SUPABASE STORAGE & DATABASE
   const submitAbsen = async () => {
     setIsLoading(true);
 
@@ -237,10 +328,10 @@ export default function AbsenMasukScreen() {
       if (!authData.user) throw new Error("Sesi user hilang.");
 
       // 3. Konversi file URI lokal menjadi FormData
-      const todayString = new Date().toISOString().split("T")[0]; // Menghasilkan "2026-06-26"
+      const localDateOnly = `${year}-${month}-${day}`;
 
-      // 👇 PERUBAHAN ANTI-SPAM: Nama file pakai tanggal, bukan detik acak
-      const fileName = `${authData.user.id}/masuk_${todayString}.jpg`;
+      // Nama file pakai tanggal
+      const fileName = `${authData.user.id}/masuk_${localDateOnly}.jpg`;
 
       const formData = new FormData();
       formData.append("file", {
@@ -254,13 +345,12 @@ export default function AbsenMasukScreen() {
         .from("attendance-photos")
         .upload(fileName, formData, {
           contentType: "multipart/form-data",
-          upsert: true, // ✅ INI YANG BIKIN FOTO LAMA KEREPLACE
+          upsert: true,
         });
 
       if (storageError) throw storageError;
 
       // 5. Ambil Public URL hasil upload foto
-      // Tambahin timestamp sedikit di akhir URL (cache buster) biar UI HP lu langsung refresh nampilin foto baru
       const { data: publicUrlData } = supabase.storage
         .from("attendance-photos")
         .getPublicUrl(storageData.path);
@@ -268,8 +358,10 @@ export default function AbsenMasukScreen() {
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
 
       // 6. Siapkan data update jam masuk & kordinat mentah
+      const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
+
       const updatePayload = {
-        actualCheckIn: timeToDisplay.toISOString(),
+        actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
@@ -289,13 +381,15 @@ export default function AbsenMasukScreen() {
           .insert({
             id: `att_${Date.now()}`,
             userId: authData.user.id,
-            date: todayString,
+            date: localDateOnly,
             ...updatePayload,
           });
 
         if (insertError) throw insertError;
       }
 
+      // ✅ Berhasil absen, kunci tombolnya!
+      setHasCheckedIn(true);
       setIsLoading(false);
       Alert.alert("Absen Berhasil", "Kehadiran masuk Anda berhasil tercatat!", [
         { text: "OK", onPress: () => router.back() },
@@ -435,7 +529,9 @@ export default function AbsenMasukScreen() {
               </View>
 
               <View
-                className={`flex-row items-center px-4 py-2 rounded-full ${isLocationValid ? "bg-emerald-50" : "bg-amber-50"}`}
+                className={`flex-row items-center px-4 py-2 rounded-full ${
+                  isLocationValid ? "bg-emerald-50" : "bg-amber-50"
+                }`}
               >
                 {isLocationValid ? (
                   <>
@@ -467,23 +563,48 @@ export default function AbsenMasukScreen() {
               )}
             </View>
 
+            {/* ✅ TOMBOL UTAMA CATAT ABSEN (Dengan Logika hasCheckedIn) */}
             <TouchableOpacity
               onPress={handleBukaKamera}
-              disabled={!isLocationValid}
-              className={`w-full py-5 rounded-3xl items-center flex-row justify-center mb-10 shadow-lg ${!isLocationValid ? "bg-slate-300" : "bg-blue-600 active:bg-blue-700"}`}
+              disabled={!isLocationValid || hasCheckedIn}
+              className={`w-full py-5 rounded-3xl items-center flex-row justify-center ${
+                hasCheckedIn ? "mb-3" : "mb-10"
+              } shadow-lg ${
+                !isLocationValid || hasCheckedIn
+                  ? "bg-slate-300"
+                  : "bg-blue-600 active:bg-blue-700"
+              }`}
             >
               <View className="w-10 h-10 bg-white/20 rounded-full items-center justify-center mr-3">
-                <Ionicons name="finger-print" size={24} color="white" />
+                <Ionicons
+                  name={hasCheckedIn ? "checkmark-done" : "finger-print"}
+                  size={24}
+                  color="white"
+                />
               </View>
               <View className="items-start">
                 <Text className="text-white font-extrabold text-lg tracking-wide">
-                  CATAT ABSEN
+                  {hasCheckedIn ? "SUDAH ABSEN" : "CATAT ABSEN"}
                 </Text>
                 <Text className="text-blue-100 text-xs">
-                  Tanpa Scan QR Code
+                  {hasCheckedIn
+                    ? "Kehadiran kamu hari ini sudah tercatat"
+                    : "Tanpa Scan QR Code"}
                 </Text>
               </View>
             </TouchableOpacity>
+
+            {/* ✅ TOMBOL DEBUG KHUSUS DEVELOPMENT (Cuma Muncul Kalau Udah Absen & ADMIN) */}
+            {hasCheckedIn && isAdmin && (
+              <TouchableOpacity
+                onPress={() => setHasCheckedIn(false)}
+                className="w-full py-3 mb-10 rounded-2xl items-center bg-purple-50 border border-purple-200 active:bg-purple-100"
+              >
+                <Text className="text-purple-600 font-bold text-xs">
+                  🛠️ DEBUG: Reset Akses Absen
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <View className="mb-4 flex-row justify-between items-center">
               <Text className="text-gray-900 font-bold text-lg">
@@ -498,7 +619,11 @@ export default function AbsenMasukScreen() {
                 className="bg-white p-4 rounded-2xl mb-3 border border-gray-100 shadow-sm flex-row items-center"
               >
                 <View
-                  className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${item.status === "Tepat Waktu" ? "bg-emerald-50" : "bg-rose-50"}`}
+                  className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
+                    item.status === "Tepat Waktu"
+                      ? "bg-emerald-50"
+                      : "bg-rose-50"
+                  }`}
                 >
                   <Ionicons
                     name={
@@ -524,10 +649,18 @@ export default function AbsenMasukScreen() {
                   </Text>
                 </View>
                 <View
-                  className={`px-3 py-1.5 rounded-full ${item.status === "Tepat Waktu" ? "bg-emerald-100" : "bg-rose-100"}`}
+                  className={`px-3 py-1.5 rounded-full ${
+                    item.status === "Tepat Waktu"
+                      ? "bg-emerald-100"
+                      : "bg-rose-100"
+                  }`}
                 >
                   <Text
-                    className={`text-[10px] font-bold uppercase ${item.status === "Tepat Waktu" ? "text-emerald-700" : "text-rose-700"}`}
+                    className={`text-[10px] font-bold uppercase ${
+                      item.status === "Tepat Waktu"
+                        ? "text-emerald-700"
+                        : "text-rose-700"
+                    }`}
                   >
                     {item.status}
                   </Text>

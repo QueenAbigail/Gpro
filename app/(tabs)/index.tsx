@@ -42,7 +42,7 @@ export default function HomeScreen() {
 
       if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
 
-      // 1. Tarik Data User (Buat Nama & Foto)
+      // 1. Tarik Data User (Buat Nama, Role & Foto)
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("*")
@@ -52,23 +52,21 @@ export default function HomeScreen() {
       if (userError) throw userError;
 
       // 2. Tarik Data Absen Hari Ini
-      // Bikin format YYYY-MM-DD buat dicocokin ke database
       const todayString = today.toISOString().split("T")[0];
 
       const { data: attendanceData, error: attendanceError } = await supabase
         .from("attendances")
         .select("*")
-        .eq("user_id", authData.user.id) // 👇 Nanti sesuaikan nama kolom relasi user-nya
-        .eq("date", todayString) // 👇 Nanti sesuaikan nama kolom tanggal di tabel attendances
+        .eq("userId", authData.user.id) 
+        .eq("date", todayString) 
         .maybeSingle();
 
-      // Kalau errornya bukan karena "data gak ketemu" (misal belum absen), baru throw error
       if (attendanceError && attendanceError.code !== "PGRST116") {
         console.error("Error fetch attendance:", attendanceError);
       }
 
       setDbUser(userData);
-      setDbAttendance(attendanceData || {}); // Kalau belum absen, set object kosong
+      setDbAttendance(attendanceData || {}); 
     } catch (error: any) {
       Alert.alert("Error", error.message || "Gagal memuat data beranda.");
     } finally {
@@ -82,8 +80,22 @@ export default function HomeScreen() {
     }, [dbUser, dbAttendance]),
   );
 
-  // Ambil nama panggilan (kata pertama dari nama lengkap)
+  // ✅ Bikin 2 Variabel Nama: Satu buat UI (Full), Satu buat Avatar (First Name)
+  const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
+
+  // Fungsi Helper buat ngeformat Timestamp ISO ke Jam doang (HH:mm)
+  const formatTime = (timeString?: string) => {
+    if (!timeString) return null;
+    const d = new Date(timeString);
+    const h = d.getHours().toString().padStart(2, "0");
+    const m = d.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  };
+
+  // Simpen hasil format jam ke variabel biar gampang dipanggil di UI
+  const jamMasuk = formatTime(dbAttendance?.actualCheckIn);
+  const jamPulang = formatTime(dbAttendance?.actualCheckOut);
 
   return (
     <ScrollView className="flex-1 bg-sky-50 pt-14 px-5">
@@ -109,10 +121,11 @@ export default function HomeScreen() {
               Selamat Pagi,
             </Text>
             {loading ? (
-              <View className="h-6 w-20 bg-gray-200 rounded mt-1" />
+              <View className="h-6 w-32 bg-gray-200 rounded mt-1" />
             ) : (
+              // ✅ Sekarang nampilin Full Name
               <Text className="text-xl font-extrabold text-gray-950">
-                {firstName}
+                {fullName}
               </Text>
             )}
           </View>
@@ -142,25 +155,25 @@ export default function HomeScreen() {
           <View>
             <Text className="text-gray-500 text-xs mb-1">Jam Masuk</Text>
             <Text
-              className={`text-3xl font-extrabold ${dbAttendance?.clock_in ? "text-gray-950" : "text-gray-400"}`}
+              className={`text-3xl font-extrabold ${jamMasuk ? "text-gray-950" : "text-gray-400"}`}
             >
-              {loading ? "..." : dbAttendance?.clock_in || "--:--"}
+              {loading ? "..." : jamMasuk || "--:--"}
             </Text>
           </View>
           <View className="h-10 w-[1px] bg-gray-200" />
           <View className="items-end">
             <Text className="text-gray-500 text-xs mb-1">Jam Pulang</Text>
             <Text
-              className={`text-3xl font-extrabold ${dbAttendance?.clock_out ? "text-gray-950" : "text-gray-400"}`}
+              className={`text-3xl font-extrabold ${jamPulang ? "text-gray-950" : "text-gray-400"}`}
             >
-              {loading ? "..." : dbAttendance?.clock_out || "--:--"}
+              {loading ? "..." : jamPulang || "--:--"}
             </Text>
           </View>
         </View>
       </View>
       {/* --- AKHIR CARD STATUS --- */}
 
-      {/* --- BAGIAN MENU UTAMA (STYLE LIVIN' - CLEAN VERSION) --- */}
+      {/* --- BAGIAN MENU UTAMA --- */}
       <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
         <View className="flex-row justify-between items-center mb-6">
           <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
@@ -175,7 +188,7 @@ export default function HomeScreen() {
         <View className="flex-row flex-wrap items-start">
           <TouchableOpacity
             onPress={() => router.push("/beranda/absen/masuk")}
-            className="w-1/4 items-center"
+            className="w-1/4 items-center mb-4"
           >
             <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
               <Ionicons name="log-in" size={24} color="#3b82f6" />
@@ -187,7 +200,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             onPress={() => router.push("/beranda/absen/pulang")}
-            className="w-1/4 items-center"
+            className="w-1/4 items-center mb-4"
           >
             <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
               <Ionicons name="log-out" size={24} color="#3b82f6" />
@@ -199,7 +212,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             onPress={() => router.push("/beranda/bko" as any)}
-            className="w-1/4 items-center"
+            className="w-1/4 items-center mb-4"
           >
             <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
               <Ionicons name="briefcase" size={24} color="#f59e0b" />
@@ -209,17 +222,20 @@ export default function HomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => router.push("/beranda/absen-anggota" as any)}
-            className="w-1/4 items-center"
-          >
-            <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2">
-              <Ionicons name="people" size={24} color="#8b5cf6" />
-            </View>
-            <Text className="text-gray-600 text-xs text-center leading-tight">
-              Absen{"\n"}Anggota
-            </Text>
-          </TouchableOpacity>
+          {/* ✅ Tombol Absen Anggota CUMA muncul kalau rolenya BUKAN STAFF */}
+          {dbUser?.role !== "STAFF" && (
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/absen-anggota" as any)}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2">
+                <Ionicons name="people" size={24} color="#8b5cf6" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Absen{"\n"}Anggota
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
       {/* --- AKHIR MENU UTAMA --- */}

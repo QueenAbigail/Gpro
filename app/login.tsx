@@ -177,6 +177,7 @@ export default function LoginScreen() {
                 className="flex-1 text-gray-800 font-medium ml-2"
                 placeholder="Masukkan kata sandi"
                 placeholderTextColor="#9ca3af"
+                autoCapitalize="none"
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
