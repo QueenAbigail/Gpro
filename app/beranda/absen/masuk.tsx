@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,14 +13,47 @@ import {
   View,
 } from "react-native";
 import { captureRef } from "react-native-view-shot";
+import { supabase } from "../../../lib/supabase";
+
+// Rumus Haversine buat hitung jarak radius geofence
+const getDistance = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) => {
+  const R = 6371e3;
+  const p = Math.PI / 180;
+  const a =
+    0.5 -
+    Math.cos((lat2 - lat1) * p) / 2 +
+    (Math.cos(lat1 * p) *
+      Math.cos(lat2 * p) *
+      (1 - Math.cos((lon2 - lon1) * p))) /
+      2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+};
 
 export default function AbsenMasukScreen() {
   const router = useRouter();
 
-  // State
+  // State Waktu & Loading
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
-  const [isLocationReady, setIsLocationReady] = useState(false);
+
+  // State Validasi Lokasi (GPS)
+  const [isLocationValid, setIsLocationValid] = useState(false);
+  const [locationMessage, setLocationMessage] = useState(
+    "Mendapatkan Koordinat...",
+  );
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
+  const [matchedLocation, setMatchedLocation] = useState<any>(null);
+  const [currentAttendanceId, setCurrentAttendanceId] = useState<string | null>(
+    null,
+  );
 
   // State Kamera & Foto
   const [permission, requestPermission] = useCameraPermissions();
@@ -27,20 +61,108 @@ export default function AbsenMasukScreen() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [capturedTime, setCapturedTime] = useState<Date | null>(null);
 
-  // Referensi (Ref)
   const cameraRef = useRef<any>(null);
   const watermarkRef = useRef<View>(null);
 
+  // Fungsi Validasi Lokasi
+  const validateLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted")
+        throw new Error("Izin akses lokasi (GPS) ditolak.");
+
+      setLocationMessage("Mengambil data GPS kamu...");
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const currentLat = location.coords.latitude;
+      const currentLon = location.coords.longitude;
+      setUserLocation({ lat: currentLat, lon: currentLon });
+
+      setLocationMessage("Memeriksa profil & jadwal...");
+
+      // 1. Ambil Sesi User & Cek Kolom allowMobileAttendance
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+      if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
+
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("siteId, allowMobileAttendance") // ✅ Udah disesuaikan dengan nama kolommu
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (userError) throw userError;
+
+      // 2. Ambil data attendance hari ini yang udah digenerate sama schedule
+      const todayString = new Date().toISOString().split("T")[0];
+      const { data: attendanceData, error: attError } = await supabase
+        .from("attendances")
+        .select("id")
+        .eq("userId", authData.user.id)
+        .eq("date", todayString)
+        .maybeSingle();
+
+      if (attendanceData) {
+        setCurrentAttendanceId(attendanceData.id);
+      }
+
+      // 3. Eksekusi Logika Percabangan allowMobileAttendance
+      if (userData?.allowMobileAttendance) {
+        // 🔥 JIKA DIIZINKAN MOBILE: Langsung lolos tanpa cek geofence!
+        setIsLocationValid(true);
+        setMatchedLocation({ name: "Mode Mobile (Lokasi Bebas)" });
+        setLocationMessage("Mode Mobile Aktif");
+      } else {
+        // JIKA TIDAK DIIZINKAN MOBILE (FIXED): Jalankan pengecekan radius geofence
+        if (!userData?.siteId) throw new Error("Site penempatan belum diatur.");
+
+        const { data: locationData, error: locError } = await supabase
+          .from("attendance_locations")
+          .select("*")
+          .eq("siteId", userData.siteId);
+
+        if (locError || !locationData || locationData.length === 0) {
+          throw new Error("Titik absen untuk site ini belum diatur.");
+        }
+
+        let foundValidLocation = null;
+        for (const loc of locationData) {
+          const distance = getDistance(
+            currentLat,
+            currentLon,
+            loc.latitude,
+            loc.longitude,
+          );
+          if (distance <= loc.radius) {
+            foundValidLocation = loc;
+            break;
+          }
+        }
+
+        if (foundValidLocation) {
+          setIsLocationValid(true);
+          setMatchedLocation(foundValidLocation);
+          setLocationMessage(`Zona Valid: ${foundValidLocation.name}`);
+        } else {
+          setIsLocationValid(false);
+          setLocationMessage("Kamu berada di luar radius absen!");
+        }
+      }
+    } catch (error: any) {
+      setIsLocationValid(false);
+      setLocationMessage(error.message || "Gagal memvalidasi lokasi.");
+    }
+  };
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    setTimeout(() => {
-      setIsLocationReady(true);
-    }, 2000);
+    validateLocation();
     return () => clearInterval(timer);
   }, []);
 
   const timeToDisplay = capturedTime || currentTime;
-
   const hours = timeToDisplay.getHours().toString().padStart(2, "0");
   const minutes = timeToDisplay.getMinutes().toString().padStart(2, "0");
   const seconds = timeToDisplay.getSeconds().toString().padStart(2, "0");
@@ -56,27 +178,13 @@ export default function AbsenMasukScreen() {
       date: "27 Mei 2026",
       time: "07:42",
       status: "Tepat Waktu",
-      type: "Scan QR",
-    },
-    {
-      id: "2",
-      date: "26 Mei 2026",
-      time: "07:50",
-      status: "Tepat Waktu",
       type: "Manual GPS",
-    },
-    {
-      id: "3",
-      date: "25 Mei 2026",
-      time: "08:15",
-      status: "Terlambat",
-      type: "Scan QR",
     },
   ];
 
   const handleBukaKamera = async () => {
-    if (!isLocationReady) {
-      Alert.alert("Tunggu", "Sedang memastikan titik koordinat GPS kamu...");
+    if (!isLocationValid) {
+      Alert.alert("Akses Ditolak", locationMessage);
       return;
     }
     if (!permission?.granted) {
@@ -107,45 +215,97 @@ export default function AbsenMasukScreen() {
     }
   };
 
-  // Cuma dipakai kalau user klik tombol "Foto Ulang"
   const resetPhoto = () => {
     setCapturedPhoto(null);
     setCapturedTime(null);
   };
 
+  // 🔥 PROSES KIRIM DATA REAL KE SUPABASE STORAGE & DATABASE
+  // 🔥 PROSES KIRIM DATA REAL KE SUPABASE STORAGE & DATABASE
   const submitAbsen = async () => {
     setIsLoading(true);
 
     try {
+      // 1. Ambil gambar ber-watermark dari ref
       const watermarkedImageUri = await captureRef(watermarkRef, {
         format: "jpg",
         quality: 0.8,
       });
 
-      console.log("Gambar siap dikirim:", watermarkedImageUri);
+      // 2. Ambil User ID buat penamaan folder di Storage
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) throw new Error("Sesi user hilang.");
 
-      // Simulasi delay upload ke server
-      setTimeout(() => {
-        setIsLoading(false); // Matiin muter-muter di tombol
+      // 3. Konversi file URI lokal menjadi FormData
+      const todayString = new Date().toISOString().split("T")[0]; // Menghasilkan "2026-06-26"
 
-        Alert.alert(
-          "Absen Berhasil",
-          "Absen masuk berhasil tercatat beserta foto ber-timestamp!",
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                // 👇 PERUBAHAN UTAMA DI SINI 👇
-                // Langsung mundur aja, gak usah ubah state isCameraOpen biar gak nabrak render
-                router.back();
-              },
-            },
-          ],
-        );
-      }, 1500);
-    } catch (error) {
+      // 👇 PERUBAHAN ANTI-SPAM: Nama file pakai tanggal, bukan detik acak
+      const fileName = `${authData.user.id}/masuk_${todayString}.jpg`;
+
+      const formData = new FormData();
+      formData.append("file", {
+        uri: watermarkedImageUri,
+        name: fileName,
+        type: "image/jpeg",
+      } as any);
+
+      // 4. Upload FormData foto ke Supabase Storage (upsert: true otomatis nimpa file lama)
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from("attendance-photos")
+        .upload(fileName, formData, {
+          contentType: "multipart/form-data",
+          upsert: true, // ✅ INI YANG BIKIN FOTO LAMA KEREPLACE
+        });
+
+      if (storageError) throw storageError;
+
+      // 5. Ambil Public URL hasil upload foto
+      // Tambahin timestamp sedikit di akhir URL (cache buster) biar UI HP lu langsung refresh nampilin foto baru
+      const { data: publicUrlData } = supabase.storage
+        .from("attendance-photos")
+        .getPublicUrl(storageData.path);
+
+      const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+
+      // 6. Siapkan data update jam masuk & kordinat mentah
+      const updatePayload = {
+        actualCheckIn: timeToDisplay.toISOString(),
+        selfieCheckIn: photoUrl,
+        gpsLat: userLocation?.lat,
+        gpsLng: userLocation?.lon,
+      };
+
+      // 7. Update atau Insert data attendances
+      if (currentAttendanceId) {
+        const { error: updateError } = await supabase
+          .from("attendances")
+          .update(updatePayload)
+          .eq("id", currentAttendanceId);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from("attendances")
+          .insert({
+            id: `att_${Date.now()}`,
+            userId: authData.user.id,
+            date: todayString,
+            ...updatePayload,
+          });
+
+        if (insertError) throw insertError;
+      }
+
       setIsLoading(false);
-      Alert.alert("Error", "Gagal memproses foto, silakan coba lagi.");
+      Alert.alert("Absen Berhasil", "Kehadiran masuk Anda berhasil tercatat!", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    } catch (error: any) {
+      setIsLoading(false);
+      Alert.alert(
+        "Gagal Absen",
+        error.message || "Terjadi kesalahan pada server.",
+      );
     }
   };
 
@@ -170,11 +330,12 @@ export default function AbsenMasukScreen() {
                     {formattedDate} - {hours}:{minutes}:{seconds}
                   </Text>
                   <Text className="text-gray-300 text-xs font-semibold">
-                    <Ionicons name="location" size={12} color="#10b981" /> PT.
-                    Citra Abadi Sejati
+                    <Ionicons name="location" size={12} color="#10b981" />{" "}
+                    {matchedLocation?.name || "Lokasi Tidak Diketahui"}
                   </Text>
                   <Text className="text-gray-300 text-[10px] mt-0.5">
-                    Lat: -6.421, Long: 106.879 (Akurasi: 5m)
+                    Lat: {userLocation?.lat?.toFixed(5) || "-"}, Long:{" "}
+                    {userLocation?.lon?.toFixed(5) || "-"}
                   </Text>
                 </View>
               </View>
@@ -225,7 +386,6 @@ export default function AbsenMasukScreen() {
                   </View>
                   <View className="w-10 h-10" />
                 </View>
-
                 <View className="items-center mb-10">
                   <TouchableOpacity
                     onPress={handleTakePicture}
@@ -275,30 +435,42 @@ export default function AbsenMasukScreen() {
               </View>
 
               <View
-                className={`flex-row items-center px-4 py-2 rounded-full ${isLocationReady ? "bg-emerald-50" : "bg-amber-50"}`}
+                className={`flex-row items-center px-4 py-2 rounded-full ${isLocationValid ? "bg-emerald-50" : "bg-amber-50"}`}
               >
-                {isLocationReady ? (
+                {isLocationValid ? (
                   <>
                     <Ionicons name="location" size={16} color="#10b981" />
                     <Text className="text-emerald-700 text-xs font-bold ml-2">
-                      Lokasi Valid (Akurasi 5m)
+                      {locationMessage}
                     </Text>
                   </>
                 ) : (
                   <>
-                    <ActivityIndicator size="small" color="#f59e0b" />
+                    {userLocation ? (
+                      <Ionicons name="warning" size={16} color="#f59e0b" />
+                    ) : (
+                      <ActivityIndicator size="small" color="#f59e0b" />
+                    )}
                     <Text className="text-amber-700 text-xs font-bold ml-2">
-                      Mendapatkan Koordinat...
+                      {locationMessage}
                     </Text>
                   </>
                 )}
               </View>
+
+              {!isLocationValid && userLocation && (
+                <TouchableOpacity onPress={validateLocation} className="mt-3">
+                  <Text className="text-blue-500 text-xs font-semibold underline">
+                    Coba Cek GPS Lagi
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <TouchableOpacity
               onPress={handleBukaKamera}
-              disabled={!isLocationReady}
-              className={`w-full py-5 rounded-3xl items-center flex-row justify-center mb-10 shadow-lg ${!isLocationReady ? "bg-blue-300" : "bg-blue-600 active:bg-blue-700"}`}
+              disabled={!isLocationValid}
+              className={`w-full py-5 rounded-3xl items-center flex-row justify-center mb-10 shadow-lg ${!isLocationValid ? "bg-slate-300" : "bg-blue-600 active:bg-blue-700"}`}
             >
               <View className="w-10 h-10 bg-white/20 rounded-full items-center justify-center mr-3">
                 <Ionicons name="finger-print" size={24} color="white" />
