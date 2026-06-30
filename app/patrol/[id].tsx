@@ -1,41 +1,69 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { supabase } from "../../lib/supabase";
 
 export default function PatrolDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
 
-  const locationInfo = {
-    name: `Pos Titik Patroli #${id}`,
-    targetTime: "08:00 WIB",
-  };
+  const [loading, setLoading] = useState(true);
+  const [locationName, setLocationName] = useState("Memuat...");
+  const [reportHistory, setReportHistory] = useState<any[]>([]);
 
-  const isEmpty = id === "3" || id === "4" || id === "5";
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      // 1. Ambil Nama Lokasi
+      const { data: locData } = await supabase
+        .from("patrol_locations")
+        .select("name")
+        .eq("id", id)
+        .single();
 
-  // Perhatikan dummy data di bawah ini, aku tambahin array "photos"
-  const reportHistory = isEmpty
-    ? []
-    : [
-        {
-          id: 1,
-          time: "08:15",
-          status: "Aman",
-          note: "Gerbang terkunci rapat, gembok lengkap, area sekitar bersih.",
-          photos: ["foto_gerbang_1.jpg", "foto_gembok_2.jpg"], // Contoh 2 foto
-        },
-        {
-          id: 2,
-          time: "14:30",
-          status: "Temuan",
-          note: "Lampu sorot pos mati satu, tolong sampaikan ke tim maintenance. Sisi kanan pos juga ada coretan.",
-          photos: [
-            "foto_lampu_mati.jpg",
-            "foto_coretan_1.jpg",
-            "foto_coretan_2.jpg",
-          ], // Contoh 3 foto
-        },
-      ];
+      if (locData) setLocationName(locData.name);
+
+      // 2. Ambil Laporan + Bukti Fotonya
+      // Asumsi: patrol_evidence punya FK 'patrolId' ke tabel 'patrols'
+      const { data: reports } = await supabase
+        .from("patrols")
+        .select(
+          `
+          id, 
+          createdAt, 
+          status, 
+          note,
+          patrol_evidence(imageUrl)
+        `,
+        )
+        .eq("locationId", id)
+        .order("createdAt", { ascending: false });
+
+      if (reports) {
+        const formatted = reports.map((r) => ({
+          id: r.id,
+          time: new Date(r.createdAt).toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          status: r.status,
+          note: r.note,
+          photos: r.patrol_evidence.map((e) => e.imageUrl),
+        }));
+        setReportHistory(formatted);
+      }
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [id]);
 
   return (
     <ScrollView
@@ -58,34 +86,29 @@ export default function PatrolDetailScreen() {
             <Ionicons name="location" size={16} color="#3b82f6" />
           </View>
           <Text className="text-lg font-bold text-slate-800">
-            {locationInfo.name}
+            {locationName}
           </Text>
         </View>
-        <Text className="text-slate-500 text-sm ml-11">
-          Target Pengecekan: {locationInfo.targetTime}
-        </Text>
       </View>
 
       <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
         Riwayat Pengecekan ({reportHistory.length})
       </Text>
 
-      {reportHistory.length === 0 ? (
-        <View className="bg-white rounded-2xl p-8 items-center justify-center shadow-sm border border-slate-100">
+      {loading ? (
+        <ActivityIndicator size="small" color="#3b82f6" />
+      ) : reportHistory.length === 0 ? (
+        <View className="bg-white rounded-2xl p-8 items-center shadow-sm border border-slate-100">
           <View className="w-20 h-20 bg-slate-50 rounded-full items-center justify-center mb-4">
             <Ionicons name="folder-open-outline" size={40} color="#cbd5e1" />
           </View>
-          <Text className="text-slate-700 text-lg font-bold mb-2">
+          <Text className="text-slate-700 text-lg font-bold">
             Belum Ada Laporan
-          </Text>
-          <Text className="text-slate-500 text-sm text-center leading-relaxed">
-            Titik patroli ini belum dicek oleh petugas.
           </Text>
         </View>
       ) : (
         reportHistory.map((report) => {
           const isSafe = report.status === "Aman";
-
           return (
             <View
               key={report.id}
@@ -98,7 +121,6 @@ export default function PatrolDetailScreen() {
                     {report.time} WIB
                   </Text>
                 </View>
-
                 <View
                   className={`px-3 py-1 rounded-full flex-row items-center ${isSafe ? "bg-green-50" : "bg-red-50"}`}
                 >
@@ -115,18 +137,17 @@ export default function PatrolDetailScreen() {
                 </View>
               </View>
 
-              {/* Tampilan Banyak Foto (Horizontal Scroll) */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 className="mb-4"
               >
-                {report.photos.map((photo, index) => (
+                {report.photos.map((photo: string, index: number) => (
                   <View
                     key={index}
                     className="w-32 h-32 bg-slate-100 rounded-xl mr-3 items-center justify-center border border-slate-200"
                   >
-                    <Ionicons name="image-outline" size={28} color="#94a3b8" />
+                    <Ionicons name="image" size={28} color="#94a3b8" />
                     <Text className="text-slate-400 text-[10px] mt-2">
                       Bukti {index + 1}
                     </Text>
