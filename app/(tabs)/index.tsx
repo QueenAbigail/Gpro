@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; // 👈 Tambah useLocalSearchParams
+import { useCallback, useEffect, useState } from "react"; // 👈 Tambah useEffect
 import {
   ActivityIndicator,
   Alert,
@@ -14,11 +14,32 @@ import { supabase } from "../../lib/supabase"; // Pastikan path ini benar
 
 export default function HomeScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams(); // 👈 Deteksi parameter dari halaman login
 
   // State untuk data dan loading
   const [loading, setLoading] = useState(true);
   const [dbUser, setDbUser] = useState<any>(null);
   const [dbAttendance, setDbAttendance] = useState<any>(null);
+  
+  // 👈 State buat ngontrol transisi Top Toast
+  const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
+
+  // 🚀 EFFECT UNTUK MENANGKAP KIRIMAN TOAST DARI LOGIN PAGE
+  useEffect(() => {
+    if (params?.showToast === "success") {
+      setIsSuccessToastVisible(true);
+
+      // Langsung bersihin parameter di URL supaya gak ketrigger lagi pas pindah tab/back
+      router.setParams({ showToast: undefined } as any);
+
+      // Durasi toast muncul (2 detik) sebelum menghilang halus
+      const timer = setTimeout(() => {
+        setIsSuccessToastVisible(false);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [params?.showToast]);
 
   // Bikin tanggal hari ini (Format: 26 Juni 2026)
   const today = new Date();
@@ -30,7 +51,6 @@ export default function HomeScreen() {
 
   // Fungsi fetch data Beranda
   const fetchHomeData = async (isManual = false) => {
-    // Kalau data udah ada, jangan spam Supabase
     if (!isManual && dbUser && dbAttendance !== null) {
       return;
     }
@@ -80,11 +100,9 @@ export default function HomeScreen() {
     }, [dbUser, dbAttendance]),
   );
 
-  // ✅ Bikin 2 Variabel Nama: Satu buat UI (Full), Satu buat Avatar (First Name)
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
 
-  // Fungsi Helper buat ngeformat Timestamp ISO ke Jam doang (HH:mm)
   const formatTime = (timeString?: string) => {
     if (!timeString) return null;
     const d = new Date(timeString);
@@ -93,203 +111,215 @@ export default function HomeScreen() {
     return `${h}:${m}`;
   };
 
-  // Simpen hasil format jam ke variabel biar gampang dipanggil di UI
   const jamMasuk = formatTime(dbAttendance?.actualCheckIn);
   const jamPulang = formatTime(dbAttendance?.actualCheckOut);
 
   return (
-    <ScrollView className="flex-1 bg-sky-50 pt-14 px-5">
-      {/* --- BAGIAN HEADER PROFIL --- */}
-      <View className="flex-row justify-between items-center mb-8">
-        <View className="flex-row items-center">
-          {loading ? (
-            <View className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm bg-gray-200 items-center justify-center">
-              <ActivityIndicator size="small" color="#3b82f6" />
-            </View>
-          ) : (
-            <Image
-              source={{
-                uri:
-                  dbUser?.photoUrl ||
-                  `https://ui-avatars.com/api/?name=${firstName}&background=0b5394&color=fff&size=128`,
-              }}
-              className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm"
-            />
-          )}
-          <View>
-            <Text className="text-gray-600 text-sm font-medium">
-              Selamat Pagi,
-            </Text>
+    <View className="flex-1 bg-sky-50">
+      
+      {/* 🟢 TOP TOAST / SONNER EFFECT (Sekarang melayang aman di sini) */}
+      {isSuccessToastVisible && (
+        <View className="absolute top-14 left-6 right-6 bg-white border border-emerald-100 p-4 rounded-2xl flex-row items-center shadow-lg z-50">
+          <View className="w-8 h-8 bg-emerald-50 rounded-full items-center justify-center mr-3">
+            <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+          </View>
+          <View className="flex-1">
+            <Text className="text-slate-800 font-bold text-sm">Berhasil masuk!</Text>
+            <Text className="text-slate-400 text-xs">Selamat bekerja kembali.</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Sisa konten utama dimasukkan ke dalam ScrollView pendamping */}
+      <ScrollView className="flex-1 pt-14 px-5" showsVerticalScrollIndicator={false}>
+        {/* --- BAGIAN HEADER PROFIL --- */}
+        <View className="flex-row justify-between items-center mb-8">
+          <View className="flex-row items-center">
             {loading ? (
-              <View className="h-6 w-32 bg-gray-200 rounded mt-1" />
+              <View className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm bg-gray-200 items-center justify-center">
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
             ) : (
-              // ✅ Sekarang nampilin Full Name
-              <Text className="text-xl font-extrabold text-gray-950">
-                {fullName}
+              <Image
+                source={{
+                  uri:
+                    dbUser?.photoUrl ||
+                    `https://ui-avatars.com/api/?name=${firstName}&background=0b5394&color=fff&size=128`,
+                }}
+                className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm"
+              />
+            )}
+            <View>
+              <Text className="text-gray-600 text-sm font-medium">
+                Selamat Pagi,
               </Text>
+              {loading ? (
+                <View className="h-6 w-32 bg-gray-200 rounded mt-1" />
+              ) : (
+                <Text className="text-xl font-extrabold text-gray-950">
+                  {fullName}
+                </Text>
+              )}
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={() => router.push("/profile/notifications")}
+            className="bg-white p-2 rounded-full shadow-sm border border-gray-200"
+          >
+            <Ionicons name="notifications-outline" size={22} color="#1f2937" />
+          </TouchableOpacity>
+        </View>
+        {/* --- AKHIR HEADER PROFIL --- */}
+
+        {/* --- BAGIAN CARD STATUS KEHADIRAN --- */}
+        <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
+          <View className="flex-row justify-between items-center mb-6">
+            <Text className="text-gray-800 text-base font-bold">
+              Status Kehadiran
+            </Text>
+            <View className="bg-sky-50 px-3 py-1 rounded-full">
+              <Text className="text-blue-600 font-semibold text-xs">
+                {formattedToday}
+              </Text>
+            </View>
+          </View>
+          <View className="flex-row justify-between items-center">
+            <View>
+              <Text className="text-gray-500 text-xs mb-1">Jam Masuk</Text>
+              <Text
+                className={`text-3xl font-extrabold ${jamMasuk ? "text-gray-950" : "text-gray-400"}`}
+              >
+                {loading ? "..." : jamMasuk || "--:--"}
+              </Text>
+            </View>
+            <View className="h-10 w-[1px] bg-gray-200" />
+            <View className="items-end">
+              <Text className="text-gray-500 text-xs mb-1">Jam Pulang</Text>
+              <Text
+                className={`text-3xl font-extrabold ${jamPulang ? "text-gray-950" : "text-gray-400"}`}
+              >
+                {loading ? "..." : jamPulang || "--:--"}
+              </Text>
+            </View>
+          </View>
+        </View>
+        {/* --- AKHIR CARD STATUS --- */}
+
+        {/* --- BAGIAN MENU UTAMA --- */}
+        <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
+          <View className="flex-row justify-between items-center mb-6">
+            <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
+            <TouchableOpacity className="flex-row items-center">
+              <Text className="text-blue-500 font-semibold text-sm mr-1">
+                Atur
+              </Text>
+              <Ionicons name="options-outline" size={16} color="#3b82f6" />
+            </TouchableOpacity>
+          </View>
+
+          <View className="flex-row flex-wrap items-start">
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/absen/masuk")}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+                <Ionicons name="log-in" size={24} color="#3b82f6" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Absen{"\n"}Masuk
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/absen/pulang")}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+                <Ionicons name="log-out" size={24} color="#3b82f6" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Absen{"\n"}Pulang
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/bko" as any)}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
+                <Ionicons name="briefcase" size={24} color="#f59e0b" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Ambil{"\n"}Backup
+              </Text>
+            </TouchableOpacity>
+
+            {dbUser?.role !== "STAFF" && (
+              <TouchableOpacity
+                onPress={() => router.push("/beranda/absen-anggota" as any)}
+                className="w-1/4 items-center mb-4"
+              >
+                <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2">
+                  <Ionicons name="people" size={24} color="#8b5cf6" />
+                </View>
+                <Text className="text-gray-600 text-xs text-center leading-tight">
+                  Absen{"\n"}Anggota
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         </View>
-        <TouchableOpacity
-          onPress={() => router.push("/profile/notifications")}
-          className="bg-white p-2 rounded-full shadow-sm border border-gray-200"
-        >
-          <Ionicons name="notifications-outline" size={22} color="#1f2937" />
-        </TouchableOpacity>
-      </View>
-      {/* --- AKHIR HEADER PROFIL --- */}
+        {/* --- AKHIR MENU UTAMA --- */}
 
-      {/* --- BAGIAN CARD STATUS KEHADIRAN --- */}
-      <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
-        <View className="flex-row justify-between items-center mb-6">
-          <Text className="text-gray-800 text-base font-bold">
-            Status Kehadiran
-          </Text>
-          <View className="bg-sky-50 px-3 py-1 rounded-full">
-            <Text className="text-blue-600 font-semibold text-xs">
-              {formattedToday}
+        {/* --- BAGIAN BANNER PENGUMUMAN --- */}
+        <View className="mb-10">
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className="text-gray-900 font-bold text-lg">
+              Informasi Perusahaan
             </Text>
           </View>
-        </View>
-        <View className="flex-row justify-between items-center">
-          <View>
-            <Text className="text-gray-500 text-xs mb-1">Jam Masuk</Text>
-            <Text
-              className={`text-3xl font-extrabold ${jamMasuk ? "text-gray-950" : "text-gray-400"}`}
-            >
-              {loading ? "..." : jamMasuk || "--:--"}
-            </Text>
-          </View>
-          <View className="h-10 w-[1px] bg-gray-200" />
-          <View className="items-end">
-            <Text className="text-gray-500 text-xs mb-1">Jam Pulang</Text>
-            <Text
-              className={`text-3xl font-extrabold ${jamPulang ? "text-gray-950" : "text-gray-400"}`}
-            >
-              {loading ? "..." : jamPulang || "--:--"}
-            </Text>
-          </View>
-        </View>
-      </View>
-      {/* --- AKHIR CARD STATUS --- */}
 
-      {/* --- BAGIAN MENU UTAMA --- */}
-      <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
-        <View className="flex-row justify-between items-center mb-6">
-          <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
-          <TouchableOpacity className="flex-row items-center">
-            <Text className="text-blue-500 font-semibold text-sm mr-1">
-              Atur
-            </Text>
-            <Ionicons name="options-outline" size={16} color="#3b82f6" />
-          </TouchableOpacity>
-        </View>
-
-        <View className="flex-row flex-wrap items-start">
-          <TouchableOpacity
-            onPress={() => router.push("/beranda/absen/masuk")}
-            className="w-1/4 items-center mb-4"
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="overflow-visible"
           >
-            <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
-              <Ionicons name="log-in" size={24} color="#3b82f6" />
-            </View>
-            <Text className="text-gray-600 text-xs text-center leading-tight">
-              Absen{"\n"}Masuk
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => router.push("/beranda/absen/pulang")}
-            className="w-1/4 items-center mb-4"
-          >
-            <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
-              <Ionicons name="log-out" size={24} color="#3b82f6" />
-            </View>
-            <Text className="text-gray-600 text-xs text-center leading-tight">
-              Absen{"\n"}Pulang
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => router.push("/beranda/bko" as any)}
-            className="w-1/4 items-center mb-4"
-          >
-            <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
-              <Ionicons name="briefcase" size={24} color="#f59e0b" />
-            </View>
-            <Text className="text-gray-600 text-xs text-center leading-tight">
-              Ambil{"\n"}Backup
-            </Text>
-          </TouchableOpacity>
-
-          {/* ✅ Tombol Absen Anggota CUMA muncul kalau rolenya BUKAN STAFF */}
-          {dbUser?.role !== "STAFF" && (
-            <TouchableOpacity
-              onPress={() => router.push("/beranda/absen-anggota" as any)}
-              className="w-1/4 items-center mb-4"
-            >
-              <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2">
-                <Ionicons name="people" size={24} color="#8b5cf6" />
+            <View className="bg-blue-600 w-72 p-5 rounded-3xl mr-4 shadow-md">
+              <View className="bg-blue-500/50 self-start px-2 py-1 rounded-md mb-3">
+                <Text className="text-white text-[10px] font-bold tracking-wider">
+                  INFO APLIKASI
+                </Text>
               </View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">
-                Absen{"\n"}Anggota
+              <Text className="text-white font-bold text-base mb-1">
+                Sistem ESS Terintegrasi
               </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-      {/* --- AKHIR MENU UTAMA --- */}
-
-      {/* --- BAGIAN BANNER PENGUMUMAN --- */}
-      <View className="mb-10">
-        <View className="flex-row justify-between items-center mb-4">
-          <Text className="text-gray-900 font-bold text-lg">
-            Informasi Perusahaan
-          </Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          className="overflow-visible"
-        >
-          {/* Card 1: Info ESS */}
-          <View className="bg-blue-600 w-72 p-5 rounded-3xl mr-4 shadow-md">
-            <View className="bg-blue-500/50 self-start px-2 py-1 rounded-md mb-3">
-              <Text className="text-white text-[10px] font-bold tracking-wider">
-                INFO APLIKASI
+              <Text className="text-blue-100 text-xs">
+                Selamat datang di aplikasi Employee Self Service (ESS). Kelola
+                data absensi, patroli, dan administrasi Anda dengan lebih mudah.
               </Text>
             </View>
-            <Text className="text-white font-bold text-base mb-1">
-              Sistem ESS Terintegrasi
-            </Text>
-            <Text className="text-blue-100 text-xs">
-              Selamat datang di aplikasi Employee Self Service (ESS). Kelola
-              data absensi, patroli, dan administrasi Anda dengan lebih mudah.
-            </Text>
-          </View>
 
-          {/* Card 2: Pengingat Absen & Patroli */}
-          <View className="bg-emerald-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
-            <View className="bg-emerald-400/50 self-start px-2 py-1 rounded-md mb-3">
-              <Text className="text-white text-[10px] font-bold tracking-wider">
-                PENGINGAT
+            <View className="bg-emerald-500 w-72 p-5 rounded-3xl mr-4 shadow-md">
+              <View className="bg-emerald-400/50 self-start px-2 py-1 rounded-md mb-3">
+                <Text className="text-white text-[10px] font-bold tracking-wider">
+                  PENGINGAT
+                </Text>
+              </View>
+              <Text className="text-white font-bold text-base mb-1">
+                Jangan Lupa Absen & Patroli
+              </Text>
+              <Text className="text-emerald-50 text-xs">
+                Pastikan Anda selalu melakukan absen tepat waktu dan menyelesaikan
+                jadwal patroli sesuai SOP area penempatan.
               </Text>
             </View>
-            <Text className="text-white font-bold text-base mb-1">
-              Jangan Lupa Absen & Patroli
-            </Text>
-            <Text className="text-emerald-50 text-xs">
-              Pastikan Anda selalu melakukan absen tepat waktu dan menyelesaikan
-              jadwal patroli sesuai SOP area penempatan.
-            </Text>
-          </View>
-        </ScrollView>
-      </View>
-      {/* --- AKHIR BANNER PENGUMUMAN --- */}
+          </ScrollView>
+        </View>
+        {/* --- AKHIR BANNER PENGUMUMAN --- */}
 
-      {/* Tambahin padding bawah ekstra biar ga ketutup bottom tab */}
-      <View className="h-10" />
-    </ScrollView>
+        {/* Extra spacing bawah */}
+        <View className="h-10" />
+      </ScrollView>
+    </View>
   );
 }

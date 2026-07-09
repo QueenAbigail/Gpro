@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -17,6 +18,9 @@ export default function ProfileScreen() {
   // State untuk nyimpen data dari Supabase
   const [loading, setLoading] = useState(true);
   const [dbUser, setDbUser] = useState<any>(null);
+  
+  // State buat kontrol visibilitas Pop-up Modal Aesthetic
+  const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
   // Parameter isManual dipakai biar tombol DEV bisa maksa lewatin cache
   const fetchUserProfile = async (isManual = false) => {
@@ -31,8 +35,17 @@ export default function ProfileScreen() {
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
 
-      if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
+      // 1. Kalau ada error jaringan/server dari Supabase, baru throw ke catch
+      if (authError) throw authError;
 
+      // 2. 🔥 JALUR PENYELAMAT: Kalau user null (habis logout), langsung stop di sini.
+      // Ga bakal nge-throw error lagi ke block catch, jadi aman dari alert siluman!
+      if (!authData.user) {
+        setLoading(false);
+        return;
+      }
+
+      // 3. Kalau user aman ada, baru lanjut tarik profile ke table 'users'
       const { data: profileData, error: profileError } = await supabase
         .from("users")
         .select(
@@ -66,29 +79,17 @@ export default function ProfileScreen() {
     }, [dbUser]),
   );
 
-  // Fungsi buat jalanin Logout
-  const handleLogout = async () => {
-    Alert.alert(
-      "Konfirmasi Keluar",
-      "Apakah Anda yakin ingin keluar dari aplikasi?",
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Keluar",
-          style: "destructive",
-          onPress: async () => {
-            const { error } = await supabase.auth.signOut();
-            if (error) {
-              Alert.alert("Gagal Logout", error.message);
-            } else {
-              // Hapus cache lokal sebelum pindah ke halaman login
-              setDbUser(null);
-              router.replace("/login");
-            }
-          },
-        },
-      ],
-    );
+  // Fungsi eksekusi logout setelah user klik konfirmasi di dalam Modal
+  const handleExecuteLogout = async () => {
+    setIsLogoutModalVisible(false);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      Alert.alert("Gagal Logout", error.message);
+    } else {
+      // Hapus cache lokal sebelum pindah ke halaman login
+      setDbUser(null);
+      router.replace("/login");
+    }
   };
 
   return (
@@ -110,7 +111,7 @@ export default function ProfileScreen() {
           </Text>
         )}
 
-        {/* 👇 INI YANG BIKIN JABATAN MUNCUL: Diganti jadi dbUser?.role */}
+        {/* Nampilin Jabatan */}
         <Text className="text-slate-500 font-medium mb-4">
           {dbUser?.position || "Jabatan Tidak Tersedia"}
         </Text>
@@ -123,7 +124,7 @@ export default function ProfileScreen() {
           <Text className="text-white font-bold ml-2 text-sm">Ganti Foto</Text>
         </TouchableOpacity>
 
-        {/* 👇 Tombol DEV - Cuma muncul kalau user ini SUPER_ADMIN atau ADMIN */}
+        {/* Tombol DEV - Cuma muncul kalau user ini SUPER_ADMIN atau ADMIN */}
         {(dbUser?.role === "SUPER_ADMIN" || dbUser?.role === "ADMIN") && (
           <TouchableOpacity
             onPress={() => fetchUserProfile(true)} // parameter true buat maksa nembus cache
@@ -179,7 +180,6 @@ export default function ProfileScreen() {
         Pengaturan Akun
       </Text>
 
-      {/* 👇 Tombol Informasi Akun udah dibalikin normal */}
       <TouchableOpacity
         onPress={() => router.push("/profile/account-info" as any)}
         className="bg-white rounded-2xl p-4 flex-row items-center justify-between mb-3 border border-slate-100"
@@ -219,13 +219,64 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
+      {/* Trigger Modal via state pas di-klik */}
       <TouchableOpacity
-        onPress={handleLogout}
+        onPress={() => setIsLogoutModalVisible(true)}
         className="flex-row items-center justify-center py-6 border-t border-slate-100 mt-4"
       >
         <Ionicons name="log-out" size={20} color="#ef4444" />
         <Text className="text-red-500 font-bold ml-2">Keluar Aplikasi</Text>
       </TouchableOpacity>
+
+      {/* Komponen Custom Modal Pop-up Aesthetic */}
+      <Modal
+        transparent
+        visible={isLogoutModalVisible}
+        animationType="fade"
+        onRequestClose={() => setIsLogoutModalVisible(false)}
+      >
+        {/* Backdrop Transparan Gelap */}
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          
+          {/* Card Pop-up */}
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            
+            {/* Lingkaran Icon Keluar */}
+            <View className="w-14 h-14 bg-red-50 rounded-full items-center justify-center mb-4">
+              <Ionicons name="log-out" size={26} color="#ef4444" />
+            </View>
+
+            {/* Judul & Deskripsi */}
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">
+              Konfirmasi Keluar
+            </Text>
+            <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed">
+              Apakah Anda yakin ingin keluar dari aplikasi? Jangan lupa pastikan semua tugas patroli Anda hari ini sudah selesai.
+            </Text>
+
+            {/* Barisan Tombol Aksi */}
+            <View className="flex-row w-full justify-between gap-3">
+              {/* Tombol Batal */}
+              <TouchableOpacity
+                onPress={() => setIsLogoutModalVisible(false)}
+                className="flex-1 bg-slate-100 py-3.5 rounded-2xl items-center active:bg-slate-200"
+              >
+                <Text className="text-slate-600 font-bold text-sm">Batal</Text>
+              </TouchableOpacity>
+              
+              {/* Tombol Keluar Pro */}
+              <TouchableOpacity
+                onPress={handleExecuteLogout}
+                className="flex-1 bg-red-500 py-3.5 rounded-2xl items-center active:bg-red-600 shadow-sm"
+              >
+                <Text className="text-white font-bold text-sm">Keluar</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 }

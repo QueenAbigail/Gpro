@@ -5,8 +5,8 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
+  Modal, // 👈 Ditambahkan untuk penunjang custom alert
   Platform,
   ScrollView,
   Text,
@@ -14,7 +14,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan path ini
+import { supabase } from "../../lib/supabase";
+
+// Buat interface tipenya dulu biar aman di TypeScript
+interface ModalConfig {
+  visible: boolean;
+  title: string;
+  message: string;
+  type: "success" | "error" | "warning" | "info";
+  onPress?: () => void;
+}
 
 export default function PengajuanIzinScreen() {
   const router = useRouter();
@@ -30,19 +39,44 @@ export default function PengajuanIzinScreen() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
+  // 🔥 State Mandiri buat Atur Custom Alert Pop-up Aesthetic
+  const [modalConfig, setModalConfig] = useState<ModalConfig>({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info",
+  });
+
+  // Fungsi jembatan pemanggil custom alert pengganti Alert.alert bawaan
+  const showAlert = (
+    title: string,
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info",
+    onPress?: () => void
+  ) => {
+    setModalConfig({
+      visible: true,
+      title,
+      message,
+      type,
+      onPress,
+    });
+  };
+
   // Format tanggal buat tampilan
   const formatDate = (date: Date) => `${date.getDate().toString().padStart(2, "0")}/${(date.getMonth() + 1).toString().padStart(2, "0")}/${date.getFullYear()}`;
   // Format tanggal buat database (YYYY-MM-DD)
   const formatForDB = (date: Date) => `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}-${date.getDate().toString().padStart(2, "0")}`;
 
   const handleDownloadTemplate = () => {
-    // Nanti bisa tambahin logic download PDF via Linking.openURL di sini
-    Alert.alert("Template", "Mengunduh template form izin...");
+    // 🔄 Ganti Alert Native ke Custom Alert Info
+    showAlert("Template", "Mengunduh template form izin...", "info");
   };
 
   const handlePickDocument = async () => {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!granted) return Alert.alert("Izin Ditolak", "Butuh akses galeri!");
+    // 🔄 Ganti Alert Native ke Custom Alert Warning
+    if (!granted) return showAlert("Izin Ditolak", "Butuh akses galeri!", "warning");
     
     const result = await ImagePicker.launchImageLibraryAsync({ 
       mediaTypes: ImagePicker.MediaTypeOptions.Images, 
@@ -53,12 +87,14 @@ export default function PengajuanIzinScreen() {
   };
 
   const handleSubmit = async () => {
+    // 🔄 Ganti Alert Native ke Custom Alert Warning
     if (!reason || !attachment) {
-      Alert.alert("Lengkapi Data", "Alasan dan dokumen form izin wajib diisi!");
+      showAlert("Lengkapi Data", "Alasan dan dokumen form izin wajib diisi!", "warning");
       return;
     }
+    // 🔄 Ganti Alert Native ke Custom Alert Warning
     if (endDate < startDate) {
-      Alert.alert("Tanggal Salah", "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+      showAlert("Tanggal Salah", "Tanggal selesai tidak boleh sebelum tanggal mulai.", "warning");
       return;
     }
 
@@ -87,25 +123,45 @@ export default function PengajuanIzinScreen() {
       // 2. Insert ke tabel leaves
       const { error: insertError } = await supabase.from("leaves").insert({
         userId: authData.user.id,
-        leaveType: "Izin", // ✅ Otomatis jadi "Izin"
+        leaveType: "Izin",
         startDate: formatForDB(startDate),
         endDate: formatForDB(endDate),
         reason: reason,
         attachmentUrl: publicUrlData.publicUrl,
-        status: "Pending", // ✅ Otomatis jadi "Pending"
+        status: "Pending",
       });
 
       if (insertError) throw insertError;
 
       setIsLoading(false);
-      Alert.alert("Sukses", "Pengajuan izin berhasil dikirim!", [
-        { text: "OK", onPress: () => router.back() }
-      ]);
+      
+      // 🔄 Ganti Alert Native ke Custom Alert Success + Otomatis Router Back pas di-klik OK
+      showAlert("Sukses", "Pengajuan izin berhasil dikirim!", "success", () => {
+        router.back();
+      });
     } catch (e: any) {
       setIsLoading(false);
-      Alert.alert("Gagal", e.message || "Terjadi kesalahan server");
+      // 🔄 Ganti Alert Native ke Custom Alert Error
+      showAlert("Gagal", e.message || "Terjadi kesalahan server", "error");
     }
   };
+
+  // Helper styling dinamis berdasarkan tipe alert modal
+  const getModalTheme = () => {
+    switch (modalConfig.type) {
+      case "success":
+        return { icon: "checkmark-circle" as const, color: "#10b981", bg: "bg-emerald-50", btn: "bg-emerald-500 active:bg-emerald-600" };
+      case "error":
+        return { icon: "close-circle" as const, color: "#ef4444", bg: "bg-red-50", btn: "bg-red-500 active:bg-red-600" };
+      case "warning":
+        return { icon: "warning" as const, color: "#f59e0b", bg: "bg-amber-50", btn: "bg-amber-500 active:bg-amber-600" };
+      case "info":
+      default:
+        return { icon: "information-circle" as const, color: "#3b82f6", bg: "bg-blue-50", btn: "bg-blue-500 active:bg-blue-600" };
+    }
+  };
+
+  const theme = getModalTheme();
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -118,7 +174,7 @@ export default function PengajuanIzinScreen() {
           <Ionicons name="arrow-back" size={20} color="#334155" />
         </TouchableOpacity>
         <View>
-          <Text className="text-xl font-bold text-slate-800">Pengajuan Izin</Text>
+          <Text className="text-xl font-bold text-slate-800">Pengajuan Cuti</Text>
           <Text className="text-slate-500 text-xs mt-0.5">Isi form & upload dokumen persetujuan</Text>
         </View>
       </View>
@@ -154,7 +210,7 @@ export default function PengajuanIzinScreen() {
         {/* Section 2: Keterangan */}
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
           <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-slate-800 font-bold">Keterangan Izin</Text>
+            <Text className="text-slate-800 font-bold">Keterangan Cuti</Text>
             <Text className="text-red-500 text-xs font-semibold">*Wajib</Text>
           </View>
           <View className="border border-slate-200 rounded-xl px-4 py-3 bg-slate-50 h-32">
@@ -175,7 +231,7 @@ export default function PengajuanIzinScreen() {
           <Text className="text-slate-800 font-bold mb-3">Dokumen Pengajuan</Text>
           <View className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5 flex-row items-center justify-between">
             <View className="flex-1 mr-3">
-              <Text className="text-blue-800 font-semibold text-sm mb-1">Form Pengajuan Izin</Text>
+              <Text className="text-blue-800 font-semibold text-sm mb-1">Form Pengajuan Cuti</Text>
               <Text className="text-blue-600 text-xs leading-relaxed">Download template ini jika belum punya form fisik.</Text>
             </View>
             <TouchableOpacity onPress={handleDownloadTemplate} className="bg-blue-600 w-10 h-10 rounded-full items-center justify-center shadow-sm">
@@ -199,7 +255,7 @@ export default function PengajuanIzinScreen() {
           ) : (
             <TouchableOpacity onPress={handlePickDocument} className="border-2 border-dashed border-slate-300 rounded-xl p-6 items-center justify-center bg-slate-50">
               <Ionicons name="cloud-upload-outline" size={32} color="#94a3b8" />
-              <Text className="text-slate-600 font-semibold mt-2 text-sm text-center">Upload Foto/Scan Form Izin</Text>
+              <Text className="text-slate-600 font-semibold mt-2 text-sm text-center">Upload Foto/Scan Form Cuti</Text>
               <Text className="text-slate-400 text-xs mt-1 text-center px-4">Pastikan form sudah ditandatangani.</Text>
             </TouchableOpacity>
           )}
@@ -219,6 +275,44 @@ export default function PengajuanIzinScreen() {
           )}
         </TouchableOpacity>
       </ScrollView>
+
+      {/* 🔮 KOMPONEN CUSTOM ALERT MODAL POP-UP AESTHETIC UNIVERSAL */}
+      <Modal
+        transparent
+        visible={modalConfig.visible}
+        animationType="fade"
+        onRequestClose={() => setModalConfig((prev) => ({ ...prev, visible: false }))}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            
+            {/* Lingkaran Dinamis Icon Sesuai Type */}
+            <View className={`w-14 h-14 ${theme.bg} rounded-full items-center justify-center mb-4`}>
+              <Ionicons name={theme.icon} size={28} color={theme.color} />
+            </View>
+
+            {/* Judul & Teks Pesan */}
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">
+              {modalConfig.title}
+            </Text>
+            <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed px-2">
+              {modalConfig.message}
+            </Text>
+
+            {/* Tombol Oke Konfirmasi */}
+            <TouchableOpacity
+              onPress={() => {
+                setModalConfig((prev) => ({ ...prev, visible: false }));
+                if (modalConfig.onPress) modalConfig.onPress(); // Eksekusi callback jika ada (seperti router.back)
+              }}
+              className={`w-full ${theme.btn} py-3.5 rounded-2xl items-center shadow-sm`}
+            >
+              <Text className="text-white font-bold text-sm">Oke</Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

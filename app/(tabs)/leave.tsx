@@ -112,7 +112,7 @@ export default function LeaveScreen() {
             <View className="w-12 h-12 bg-amber-50 rounded-full items-center justify-center mb-2">
               <Ionicons name="document-text" size={24} color="#f59e0b" />
             </View>
-            <Text className="text-slate-700 font-semibold text-sm">Izin</Text>
+            <Text className="text-slate-700 font-semibold text-sm">Cuti</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push("/leave/tukar-shift")}

@@ -5,8 +5,8 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
+  Modal, // 👈 Ditambahkan untuk penunjang custom alert
   Platform,
   ScrollView,
   Text,
@@ -14,7 +14,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan path jika beda
+import { supabase } from "../../lib/supabase";
+
+// Interface tipe data buat modal alert biar aman di TypeScript
+interface ModalConfig {
+  visible: boolean;
+  title: string;
+  message: string;
+  type: "success" | "error" | "warning" | "info";
+  onPress?: () => void;
+}
 
 export default function PengajuanSakitScreen() {
   const router = useRouter();
@@ -29,6 +38,30 @@ export default function PengajuanSakitScreen() {
   const [endDate, setEndDate] = useState(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+
+  // 🔥 State Utama Custom Alert Pop-up Aesthetic
+  const [modalConfig, setModalConfig] = useState<ModalConfig>({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info",
+  });
+
+  // Fungsi jembatan pemanggil custom alert pengganti Alert.alert bawaan
+  const showAlert = (
+    title: string,
+    message: string,
+    type: "success" | "error" | "warning" | "info" = "info",
+    onPress?: () => void
+  ) => {
+    setModalConfig({
+      visible: true,
+      title,
+      message,
+      type,
+      onPress,
+    });
+  };
 
   // Fungsi Format Tanggal buat ditampilin di layar (Contoh: 29/06/2026)
   const formatDate = (date: Date) => {
@@ -51,7 +84,8 @@ export default function PengajuanSakitScreen() {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permissionResult.granted === false) {
-      Alert.alert("Izin Ditolak", "Aplikasi butuh akses galeri untuk unggah surat dokter.");
+      // 🔄 Ganti Alert Native ke Custom Alert Warning
+      showAlert("Izin Ditolak", "Aplikasi butuh akses galeri untuk unggah surat dokter.", "warning");
       return;
     }
 
@@ -68,13 +102,15 @@ export default function PengajuanSakitScreen() {
   // Fungsi Utama Kirim Data
   const handleSubmit = async () => {
     if (!reason || !attachment) {
-      Alert.alert("Data Belum Lengkap", "Mohon isi keterangan dan lampirkan surat dokter!");
+      // 🔄 Ganti Alert Native ke Custom Alert Warning
+      showAlert("Data Belum Lengkap", "Mohon isi keterangan dan lampirkan surat dokter!", "warning");
       return;
     }
 
     // Validasi: Tanggal selesai gak boleh lebih mundur dari tanggal mulai
     if (endDate < startDate) {
-      Alert.alert("Tanggal Salah", "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+      // 🔄 Ganti Alert Native ke Custom Alert Warning
+      showAlert("Tanggal Salah", "Tanggal selesai tidak boleh sebelum tanggal mulai.", "warning");
       return;
     }
 
@@ -114,27 +150,50 @@ export default function PengajuanSakitScreen() {
       // 4. Masukin Semua Data ke Tabel 'leaves'
       const { error: insertError } = await supabase.from("leaves").insert({
         userId: userId,
-        leaveType: "Sakit", // ✅ Langsung di-hardcode "Sakit"
+        leaveType: "Sakit",
         startDate: formatForDB(startDate),
         endDate: formatForDB(endDate),
         reason: reason,
         attachmentUrl: publicUrlData.publicUrl,
-        status: "Pending", // ✅ Langsung di-hardcode "Pending"
+        status: "Pending",
       });
 
       if (insertError) throw insertError;
 
       setIsLoading(false);
-      Alert.alert(
+      
+      // 🔄 Ganti Alert Native ke Custom Alert Success + Callback Router Back
+      showAlert(
         "Pengajuan Berhasil",
         "Pengajuan sakit berhasil dikirim dan sedang menunggu persetujuan HRD.",
-        [{ text: "OK", onPress: () => router.back() }]
+        "success",
+        () => {
+          router.back();
+        }
       );
     } catch (error: any) {
       setIsLoading(false);
-      Alert.alert("Gagal Mengirim", error.message || "Terjadi kesalahan pada server.");
+      // 🔄 Ganti Alert Native ke Custom Alert Error
+      showAlert("Gagal Mengirim", error.message || "Terjadi kesalahan pada server.", "error");
     }
   };
+
+  // Helper styling dinamis berdasarkan tipe alert modal
+  const getModalTheme = () => {
+    switch (modalConfig.type) {
+      case "success":
+        return { icon: "checkmark-circle" as const, color: "#10b981", bg: "bg-emerald-50", btn: "bg-emerald-500 active:bg-emerald-600" };
+      case "error":
+        return { icon: "close-circle" as const, color: "#ef4444", bg: "bg-red-50", btn: "bg-red-500 active:bg-red-600" };
+      case "warning":
+        return { icon: "warning" as const, color: "#f59e0b", bg: "bg-amber-50", btn: "bg-amber-500 active:bg-amber-600" };
+      case "info":
+      default:
+        return { icon: "information-circle" as const, color: "#3b82f6", bg: "bg-blue-50", btn: "bg-blue-500 active:bg-blue-600" };
+    }
+  };
+
+  const theme = getModalTheme();
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -170,7 +229,6 @@ export default function PengajuanSakitScreen() {
                 </Text>
               </TouchableOpacity>
               
-              {/* Modal DatePicker Tanggal Mulai */}
               {showStartPicker && (
                 <DateTimePicker
                   value={startDate}
@@ -196,12 +254,11 @@ export default function PengajuanSakitScreen() {
                 </Text>
               </TouchableOpacity>
 
-              {/* Modal DatePicker Tanggal Selesai */}
               {showEndPicker && (
                 <DateTimePicker
                   value={endDate}
                   mode="date"
-                  minimumDate={startDate} // Gak boleh milih tanggal sebelum tanggal mulai
+                  minimumDate={startDate}
                   display={Platform.OS === "ios" ? "spinner" : "default"}
                   onChange={(event, selectedDate) => {
                     setShowEndPicker(false);
@@ -237,7 +294,6 @@ export default function PengajuanSakitScreen() {
           </View>
 
           {attachment ? (
-            // Kalau udah upload
             <View className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
               <Image source={{ uri: attachment }} className="w-full h-40" resizeMode="cover" />
               <View className="p-3 flex-row justify-between items-center border-t border-slate-200">
@@ -250,7 +306,6 @@ export default function PengajuanSakitScreen() {
               </View>
             </View>
           ) : (
-            // Kalau belum upload
             <TouchableOpacity
               onPress={handlePickDocument}
               className="border-2 border-dashed border-slate-300 rounded-xl p-6 items-center justify-center bg-slate-50"
@@ -280,6 +335,44 @@ export default function PengajuanSakitScreen() {
           )}
         </TouchableOpacity>
       </ScrollView>
+
+      {/* 🔮 KOMPONEN CUSTOM ALERT MODAL POP-UP AESTHETIC UNIVERSAL */}
+      <Modal
+        transparent
+        visible={modalConfig.visible}
+        animationType="fade"
+        onRequestClose={() => setModalConfig((prev) => ({ ...prev, visible: false }))}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            
+            {/* Lingkaran Dinamis Icon Sesuai Type */}
+            <View className={`w-14 h-14 ${theme.bg} rounded-full items-center justify-center mb-4`}>
+              <Ionicons name={theme.icon} size={28} color={theme.color} />
+            </View>
+
+            {/* Judul & Teks Pesan */}
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">
+              {modalConfig.title}
+            </Text>
+            <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed px-2">
+              {modalConfig.message}
+            </Text>
+
+            {/* Tombol Oke Konfirmasi */}
+            <TouchableOpacity
+              onPress={() => {
+                setModalConfig((prev) => ({ ...prev, visible: false }));
+                if (modalConfig.onPress) modalConfig.onPress(); // Jalankan router.back pas sukses klik oke
+              }}
+              className={`w-full ${theme.btn} py-3.5 rounded-2xl items-center shadow-sm`}
+            >
+              <Text className="text-white font-bold text-sm">Oke</Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

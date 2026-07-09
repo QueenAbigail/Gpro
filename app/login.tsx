@@ -3,8 +3,8 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
+  Modal,
   Text,
   TextInput,
   TouchableOpacity,
@@ -27,6 +27,10 @@ export default function LoginScreen() {
     "Sistem Informasi Manajemen Kehadiran",
   );
   const [settingsLoading, setSettingsLoading] = useState(true);
+
+  // 👈 Sekarang di halaman login cuma perlu handle modal error aja
+  const [isErrorModalVisible, setIsErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     fetchSystemSettings();
@@ -56,34 +60,31 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Gagal", "ID dan kata sandi tidak boleh kosong!");
+      setErrorMessage("ID dan kata sandi tidak boleh kosong!");
+      setIsErrorModalVisible(true);
       return;
     }
 
     setLoading(true);
 
-    // 👇 INI TRIKNYA: Nambahin Suffix Otomatis
-    // Kalau inputnya belum ada karakter '@', kita tempelin '@hris.com'
-    // Tapi kalau user telanjur ngetik email lengkap, kita biarin aja
     const formattedEmail = email.includes("@") ? email : `${email}@hris.com`;
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: formattedEmail, // Kita kirim email yang udah dimodifikasi
+      email: formattedEmail,
       password: password,
     });
 
     setLoading(false);
 
     if (error) {
-      // Pesen error-nya kita bikin lebih ramah buat user
-      Alert.alert(
-        "Login Gagal",
-        "ID atau kata sandi tidak sesuai. Silakan coba lagi.",
-      );
+      setErrorMessage("ID atau kata sandi tidak sesuai. Silakan coba lagi.");
+      setIsErrorModalVisible(true);
     } else {
-      Alert.alert("Sukses", "Berhasil masuk!", [
-        { text: "OK", onPress: () => router.replace("/(tabs)" as any) },
-      ]);
+      // 🚀 LANGSUNG REDIRECT & TITIP PARAMS TOAST BUAT BERANDA
+      router.replace({
+        pathname: "/(tabs)",
+        params: { showToast: "success" },
+      } as any);
     }
   };
 
@@ -98,7 +99,7 @@ export default function LoginScreen() {
           paddingBottom: 60,
         }}
         enableOnAndroid={true}
-        extraScrollHeight={60} // Bantalan ekstra biar tombol login ikutan keangkat
+        extraScrollHeight={60}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -210,6 +211,44 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAwareScrollView>
+
+      {/* 🔴 CUSTOM POP-UP MODAL (Gagal Login) */}
+      <Modal
+        transparent
+        visible={isErrorModalVisible}
+        animationType="fade"
+        onRequestClose={() => setIsErrorModalVisible(false)}
+      >
+        {/* Backdrop Gelap */}
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          
+          {/* Card Box */}
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            
+            {/* Lingkaran Icon Silang */}
+            <View className="w-14 h-14 bg-red-50 rounded-full items-center justify-center mb-4">
+              <Ionicons name="close-circle" size={32} color="#ef4444" />
+            </View>
+
+            {/* Judul & Pesan Error */}
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">
+              Login Gagal
+            </Text>
+            <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed">
+              {errorMessage}
+            </Text>
+
+            {/* Tombol Aksi */}
+            <TouchableOpacity
+              onPress={() => setIsErrorModalVisible(false)}
+              className="w-full bg-blue-600 py-3.5 rounded-2xl items-center active:bg-blue-700 shadow-sm"
+            >
+              <Text className="text-white font-bold text-sm">Coba Lagi</Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

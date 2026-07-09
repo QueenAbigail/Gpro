@@ -1,63 +1,103 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { 
+  ActivityIndicator, 
+  Modal, // 👈 Pengganti alert native kaku
+  ScrollView, 
+  Text, 
+  TouchableOpacity, 
+  View 
+} from "react-native";
+import { supabase } from "../../lib/supabase"; // Sesuaikan dengan path config Supabase lu
+
+interface HistoryItem {
+  id: string;
+  type: string;
+  date: string;
+  duration: string;
+  status: string;
+  reason: string;
+}
+
+interface ModalConfig {
+  visible: boolean;
+  title: string;
+  message: string;
+  type: "success" | "error" | "warning" | "info";
+}
 
 export default function LeaveHistoryScreen() {
   const router = useRouter();
 
-  // Dummy data yang lebih banyak untuk halaman riwayat lengkap
-  const fullHistory = [
-    {
-      id: "1",
-      type: "Sakit",
-      date: "9 Juni 2026",
-      duration: "1 Hari",
-      status: "Pending",
-      reason: "Demam dan flu",
-    },
-    {
-      id: "2",
-      type: "Tukeran Shift",
-      date: "12 Juni 2026",
-      duration: "Pagi ke Malam",
-      status: "Disetujui",
-      reason: "Ada acara keluarga",
-    },
-    {
-      id: "3",
-      type: "Izin",
-      date: "15 Mei 2026",
-      duration: "1 Hari",
-      status: "Ditolak",
-      reason: "Keperluan mendadak",
-    },
-    {
-      id: "4",
-      type: "Sakit",
-      date: "10 April 2026",
-      duration: "2 Hari",
-      status: "Disetujui",
-      reason: "Gejala tifus, butuh istirahat",
-    },
-    {
-      id: "5",
-      type: "Izin",
-      date: "22 Maret 2026",
-      duration: "1 Hari",
-      status: "Disetujui",
-      reason: "Perpanjang STNK di Samsat",
-    },
-    {
-      id: "6",
-      type: "Tukeran Shift",
-      date: "05 Februari 2026",
-      duration: "Malam ke Pagi",
-      status: "Disetujui",
-      reason: "Kondisi badan kurang fit untuk begadang",
-    },
-  ];
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Helper untuk styling warna status
+  // 🔮 State Utama Custom Alert Pop-up Aesthetic
+  const [modalConfig, setModalConfig] = useState<ModalConfig>({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info",
+  });
+
+  useEffect(() => {
+    fetchSubmissionHistory();
+  }, []);
+
+  // Fungsi pemanggil Custom Alert Cantik
+  const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
+    setModalConfig({ visible: true, title, message, type });
+  };
+
+  const fetchSubmissionHistory = async () => {
+    try {
+      setIsLoading(true);
+
+      // 1. Ambil session user login
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        showAlert("Gagal Autentikasi", "Sesi login tidak ditemukan. Silakan login ulang.", "error");
+        return;
+      }
+
+      // 2. Query ke Supabase
+      // ⚠️ Tarik data (Pastikan nama ".from('nama_tabel')" sesuai dengan di Supabase lu)
+      const { data, error } = await supabase
+        .from("leaves") 
+        .select("*")
+        .eq("userId", user.id) // ⚠️ Pastikan nama kolom 'user_id' sesuai dengan DB lu
+        .order("createdAt", { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const formattedData = data.map((item: any) => ({
+          id: item.id.toString(),
+          type: item.type,        
+          date: item.date,        
+          duration: item.duration, 
+          status: item.status,    
+          reason: item.reason,    
+        }));
+        setHistory(formattedData);
+      }
+    } catch (error: any) {
+      console.error("Gagal mengambil data riwayat:", error);
+      
+      // 🧠 Membedah isi object error Supabase agar tampil rapi di Custom Modal
+      const errorMessage = error?.message || 
+                           (typeof error === "object" ? JSON.stringify(error) : String(error));
+      
+      // 🔄 Tampilkan Error DB langsung ke Custom Alert Cantik lu
+      showAlert("Gagal Memuat Data", `Detail Error: ${errorMessage}`, "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper theme warna status list (Tetap original)
   const getStatusStyle = (status: string) => {
     switch (status) {
       case "Disetujui":
@@ -71,7 +111,7 @@ export default function LeaveHistoryScreen() {
     }
   };
 
-  // Helper untuk icon berdasarkan tipe pengajuan
+  // Helper jenis icon list (Tetap original)
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "Sakit":
@@ -85,6 +125,23 @@ export default function LeaveHistoryScreen() {
     }
   };
 
+  // Helper styling dinamis untuk tema warna Pop-up Alert
+  const getModalTheme = () => {
+    switch (modalConfig.type) {
+      case "error":
+        return { icon: "close-circle" as const, color: "#ef4444", bg: "bg-red-50", btn: "bg-red-500 active:bg-red-600" };
+      case "warning":
+        return { icon: "warning" as const, color: "#f59e0b", bg: "bg-amber-50", btn: "bg-amber-500 active:bg-amber-600" };
+      case "success":
+        return { icon: "checkmark-circle" as const, color: "#10b981", bg: "bg-emerald-50", btn: "bg-emerald-500 active:bg-emerald-600" };
+      case "info":
+      default:
+        return { icon: "information-circle" as const, color: "#3b82f6", bg: "bg-blue-50", btn: "bg-blue-500 active:bg-blue-600" };
+    }
+  };
+
+  const theme = getModalTheme();
+
   return (
     <View className="flex-1 bg-slate-50">
       {/* Header */}
@@ -96,61 +153,79 @@ export default function LeaveHistoryScreen() {
           <Ionicons name="arrow-back" size={20} color="#334155" />
         </TouchableOpacity>
         <View>
-          <Text className="text-xl font-bold text-slate-800">
-            Riwayat Pengajuan
-          </Text>
-          <Text className="text-slate-500 text-xs mt-0.5">
-            Seluruh data sakit, izin, & tukar shift
-          </Text>
+          <Text className="text-xl font-bold text-slate-800">Riwayat Pengajuan</Text>
+          <Text className="text-slate-500 text-xs mt-0.5">Seluruh data sakit, izin, & tukar shift</Text>
         </View>
       </View>
 
       {/* List History Full */}
-      <ScrollView
-        className="flex-1 px-6 pt-6"
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        {fullHistory.map((item) => {
-          const statusStyle = getStatusStyle(item.status);
-          return (
-            <TouchableOpacity
-              key={item.id}
-              className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center active:bg-slate-50"
-            >
-              <View className="w-12 h-12 bg-slate-50 rounded-full items-center justify-center mr-4">
-                <Ionicons
-                  name={getTypeIcon(item.type) as any}
-                  size={24}
-                  color="#64748b"
-                />
-              </View>
+      <ScrollView className="flex-1 px-6 pt-6" contentContainerStyle={{ paddingBottom: 100 }}>
+        {isLoading ? (
+          <View className="flex-1 justify-center items-center py-20">
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text className="text-slate-400 text-xs mt-3">Memuat riwayat...</Text>
+          </View>
+        ) : history.length === 0 ? (
+          <View className="flex-1 justify-center items-center py-20">
+            <Text className="text-slate-400 text-sm font-semibold">Belum ada riwayat pengajuan</Text>
+          </View>
+        ) : (
+          history.map((item) => {
+            const statusStyle = getStatusStyle(item.status);
+            return (
+              <TouchableOpacity
+                key={item.id}
+                className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center active:bg-slate-50"
+              >
+                <View className="w-12 h-12 bg-slate-50 rounded-full items-center justify-center mr-4">
+                  <Ionicons name={getTypeIcon(item.type) as any} size={24} color="#64748b" />
+                </View>
 
-              <View className="flex-1">
-                <Text className="text-slate-800 font-bold mb-1">
-                  {item.type}
-                </Text>
-                <Text className="text-slate-500 text-xs mb-1">
-                  {item.date} • {item.duration}
-                </Text>
-                <Text
-                  className="text-slate-400 text-xs truncate"
-                  numberOfLines={1}
-                >
-                  "{item.reason}"
-                </Text>
-              </View>
+                <View className="flex-1">
+                  <Text className="text-slate-800 font-bold mb-1">{item.type}</Text>
+                  <Text className="text-slate-500 text-xs mb-1">{item.date} • {item.duration}</Text>
+                  <Text className="text-slate-400 text-xs truncate" numberOfLines={1}>"{item.reason}"</Text>
+                </View>
 
-              <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>
-                <Text
-                  className={`text-[10px] font-bold uppercase ${statusStyle.text}`}
-                >
-                  {item.status}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+                <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>
+                  <Text className={`text-[10px] font-bold uppercase ${statusStyle.text}`}>{item.status}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        )}
       </ScrollView>
+
+      {/* 🔮 CUSTOM ALERT MODAL POP-UP GANTENG */}
+      <Modal
+        transparent
+        visible={modalConfig.visible}
+        animationType="fade"
+        onRequestClose={() => setModalConfig((prev) => ({ ...prev, visible: false }))}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            
+            {/* Icon Box */}
+            <View className={`w-14 h-14 ${theme.bg} rounded-full items-center justify-center mb-4`}>
+              <Ionicons name={theme.icon} size={28} color={theme.color} />
+            </View>
+
+            {/* Text Content */}
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">{modalConfig.title}</Text>
+            <Text className="text-slate-400 text-xs text-center mb-6 leading-relaxed px-2">{modalConfig.message}</Text>
+
+            {/* Action Button */}
+            <TouchableOpacity
+              onPress={() => setModalConfig((prev) => ({ ...prev, visible: false }))}
+              className={`w-full ${theme.btn} py-3.5 rounded-2xl items-center shadow-sm`}
+            >
+              <Text className="text-white font-bold text-sm">Oke</Text>
+            </TouchableOpacity>
+
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
