@@ -57,8 +57,8 @@ export default function HomeScreen() {
       const { data: attendanceData, error: attendanceError } = await supabase
         .from("attendances")
         .select("*")
-        .eq("userId", authData.user.id) 
-        .eq("date", todayString) 
+        .eq("userId", authData.user.id)
+        .eq("date", todayString)
         .maybeSingle();
 
       if (attendanceError && attendanceError.code !== "PGRST116") {
@@ -66,7 +66,7 @@ export default function HomeScreen() {
       }
 
       setDbUser(userData);
-      setDbAttendance(attendanceData || {}); 
+      setDbAttendance(attendanceData || {});
     } catch (error: any) {
       Alert.alert("Error", error.message || "Gagal memuat data beranda.");
     } finally {
@@ -218,7 +218,7 @@ export default function HomeScreen() {
               <Ionicons name="briefcase" size={24} color="#f59e0b" />
             </View>
             <Text className="text-gray-600 text-xs text-center leading-tight">
-              Ambil{"\n"}BKO
+              Ambil{"\n"}Backup
             </Text>
           </TouchableOpacity>
 
