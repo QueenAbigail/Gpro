@@ -3,13 +3,13 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { 
   ActivityIndicator, 
-  Modal, // 👈 Pengganti alert native kaku
+  Modal, 
   ScrollView, 
   Text, 
   TouchableOpacity, 
   View 
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan dengan path config Supabase lu
+import { supabase } from "../../lib/supabase"; 
 
 interface HistoryItem {
   id: string;
@@ -27,13 +27,37 @@ interface ModalConfig {
   type: "success" | "error" | "warning" | "info";
 }
 
+// 🗓️ HELPER 1: FORMAT TANGGAL ("2026-06-29" ➡️ "29 Juni 2026")
+const formatDateId = (dateStr: string) => {
+  if (!dateStr) return "-";
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+// ⏱️ HELPER 2: KALKULASI SELISIH HARI OTOMATIS
+const calculateDuration = (startStr: string, endStr: string) => {
+  if (!startStr || !endStr) return "- Hari";
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  
+  // Ambil selisih waktu dalam milidetik, lalu ubah ke satuan hari
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 supaya inklusif (29 ke 30 dihitung 2 hari)
+  
+  return `${diffDays} Hari`;
+};
+
 export default function LeaveHistoryScreen() {
   const router = useRouter();
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🔮 State Utama Custom Alert Pop-up Aesthetic
+  // State Utama Custom Alert Pop-up Aesthetic
   const [modalConfig, setModalConfig] = useState<ModalConfig>({
     visible: false,
     title: "",
@@ -62,49 +86,46 @@ export default function LeaveHistoryScreen() {
         return;
       }
 
-      // 2. Query ke Supabase
-      // ⚠️ Tarik data (Pastikan nama ".from('nama_tabel')" sesuai dengan di Supabase lu)
+      // 2. Query ke Supabase tabel 'leaves'
       const { data, error } = await supabase
         .from("leaves") 
         .select("*")
-        .eq("userId", user.id) // ⚠️ Pastikan nama kolom 'user_id' sesuai dengan DB lu
-        .order("createdAt", { ascending: false });
+        .eq("userId", user.id) 
+        .order("startDate", { ascending: false }); // Urutkan dari tanggal izin paling baru
 
       if (error) throw error;
 
       if (data) {
+        // 3. Proses format & kalkulasi data langsung sebelum disave ke state
         const formattedData = data.map((item: any) => ({
           id: item.id.toString(),
-          type: item.type,        
-          date: item.date,        
-          duration: item.duration, 
-          status: item.status,    
-          reason: item.reason,    
+          type: item.leaveType || "Izin", // Kolom leaveType DB        
+          date: formatDateId(item.startDate), // Diubah jadi format Indonesia
+          duration: calculateDuration(item.startDate, item.endDate), // Kalkulasi durasi otomatis dari DB
+          status: item.status || "PENDING",    
+          reason: item.reason || "-",    
         }));
         setHistory(formattedData);
       }
     } catch (error: any) {
       console.error("Gagal mengambil data riwayat:", error);
-      
-      // 🧠 Membedah isi object error Supabase agar tampil rapi di Custom Modal
-      const errorMessage = error?.message || 
-                           (typeof error === "object" ? JSON.stringify(error) : String(error));
-      
-      // 🔄 Tampilkan Error DB langsung ke Custom Alert Cantik lu
+      const errorMessage = error?.message || (typeof error === "object" ? JSON.stringify(error) : String(error));
       showAlert("Gagal Memuat Data", `Detail Error: ${errorMessage}`, "error");
     } finally {
       setIsLoading(false);
     }
   };
-
-  // Helper theme warna status list (Tetap original)
+  
+  // Helper theme warna status list (Gue bikin upperCase biar matching sama text dari DB)
   const getStatusStyle = (status: string) => {
-    switch (status) {
-      case "Disetujui":
+    switch (status?.toUpperCase()) {
+      case "DISETUJUI":
+      case "APPROVED":
         return { text: "text-emerald-600", bg: "bg-emerald-100" };
-      case "Pending":
+      case "PENDING":
         return { text: "text-amber-600", bg: "bg-amber-100" };
-      case "Ditolak":
+      case "DITOLAK":
+      case "REJECTED":
         return { text: "text-red-600", bg: "bg-red-100" };
       default:
         return { text: "text-slate-600", bg: "bg-slate-100" };

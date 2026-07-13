@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; // 👈 Tambah useLocalSearchParams
-import { useCallback, useEffect, useState } from "react"; // 👈 Tambah useEffect
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; 
+import { useCallback, useEffect, useState } from "react"; 
 import {
   ActivityIndicator,
   Alert,
@@ -10,21 +10,39 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Pastikan path ini benar
+import { supabase } from "../../lib/supabase"; 
+import { registerForPushNotificationsAsync } from "../../lib/notifications"; // 👈 1. IMPORT HELPER NOTIFIKASI LU
 
 export default function HomeScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams(); // 👈 Deteksi parameter dari halaman login
+  const params = useLocalSearchParams(); 
 
   // State untuk data dan loading
   const [loading, setLoading] = useState(true);
   const [dbUser, setDbUser] = useState<any>(null);
   const [dbAttendance, setDbAttendance] = useState<any>(null);
   
-  // 👈 State buat ngontrol transisi Top Toast
+  // State buat ngontrol transisi Top Toast
   const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
 
-  // 🚀 EFFECT UNTUK MENANGKAP KIRIMAN TOAST DARI LOGIN PAGE
+  // 🚀 2. EFFECT UTAMA: REGISTRASI PUSH NOTIFICATION (Hanya jalan 1x pas aplikasi dibuka)
+  useEffect(() => {
+    const setupPushNotifications = async () => {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          // Picu izin notifikasi dan simpan tokennya ke kolom 'expoPushToken' di DB
+          await registerForPushNotificationsAsync(authData.user.id);
+        }
+      } catch (error) {
+        console.error("Gagal setup notifikasi pada mount:", error);
+      }
+    };
+
+    setupPushNotifications();
+  }, []);
+
+  // EFFECT UNTUK MENANGKAP KIRIMAN TOAST DARI LOGIN PAGE
   useEffect(() => {
     if (params?.showToast === "success") {
       setIsSuccessToastVisible(true);
@@ -32,7 +50,7 @@ export default function HomeScreen() {
       // Langsung bersihin parameter di URL supaya gak ketrigger lagi pas pindah tab/back
       router.setParams({ showToast: undefined } as any);
 
-      // Durasi toast muncul (2 detik) sebelum menghilang halus
+      // Durasi toast muncul sebelum menghilang halus
       const timer = setTimeout(() => {
         setIsSuccessToastVisible(false);
       }, 5000);
@@ -117,7 +135,7 @@ export default function HomeScreen() {
   return (
     <View className="flex-1 bg-sky-50">
       
-      {/* 🟢 TOP TOAST / SONNER EFFECT (Sekarang melayang aman di sini) */}
+      {/* 🟢 TOP TOAST / SONNER EFFECT */}
       {isSuccessToastVisible && (
         <View className="absolute top-14 left-6 right-6 bg-white border border-emerald-100 p-4 rounded-2xl flex-row items-center shadow-lg z-50">
           <View className="w-8 h-8 bg-emerald-50 rounded-full items-center justify-center mr-3">
@@ -295,7 +313,7 @@ export default function HomeScreen() {
               </Text>
               <Text className="text-blue-100 text-xs">
                 Selamat datang di aplikasi Employee Self Service (ESS). Kelola
-                data absensi, patroli, dan administrasi Anda dengan lebih mudah.
+                data absensi, patroli, and administrasi Anda dengan lebih mudah.
               </Text>
             </View>
 

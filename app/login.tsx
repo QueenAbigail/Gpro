@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { supabase } from "../lib/supabase";
+import { handleDeviceVerification } from "../lib/device"; // 👈 1. IMPORT HELPER DEVICE VERIFICATION LU
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -28,7 +29,6 @@ export default function LoginScreen() {
   );
   const [settingsLoading, setSettingsLoading] = useState(true);
 
-  // 👈 Sekarang di halaman login cuma perlu handle modal error aja
   const [isErrorModalVisible, setIsErrorModalVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -69,18 +69,32 @@ export default function LoginScreen() {
 
     const formattedEmail = email.includes("@") ? email : `${email}@hris.com`;
 
+    // 1. Proses Otentikasi Email & Password
     const { data, error } = await supabase.auth.signInWithPassword({
       email: formattedEmail,
       password: password,
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setErrorMessage("ID atau kata sandi tidak sesuai. Silakan coba lagi.");
       setIsErrorModalVisible(true);
-    } else {
-      // 🚀 LANGSUNG REDIRECT & TITIP PARAMS TOAST BUAT BERANDA
+    } else if (data?.user) {
+      
+      // 🚀 2. JALANKAN VERIFIKASI DEVICE ID SEBELUM MASUK BERANDA
+      const verification = await handleDeviceVerification(data.user.id);
+
+      if (!verification.success) {
+        // Jika Device Ilegal / Diblokir Admin, paksa keluar lagi
+        await supabase.auth.signOut();
+        setLoading(false);
+        setErrorMessage(verification.message); // Ambil pesan error dari helper device.ts
+        setIsErrorModalVisible(true);
+        return;
+      }
+
+      // 3. Jika Lolos Keduanya, Baru Boleh Masuk ke Beranda
+      setLoading(false);
       router.replace({
         pathname: "/(tabs)",
         params: { showToast: "success" },
@@ -212,7 +226,7 @@ export default function LoginScreen() {
         </View>
       </KeyboardAwareScrollView>
 
-      {/* 🔴 CUSTOM POP-UP MODAL (Gagal Login) */}
+      {/* 🔴 CUSTOM POP-UP MODAL (Gagal Login / Perangkat Tidak Cocok) */}
       <Modal
         transparent
         visible={isErrorModalVisible}
@@ -232,7 +246,7 @@ export default function LoginScreen() {
 
             {/* Judul & Pesan Error */}
             <Text className="text-slate-800 font-bold text-lg text-center mb-2">
-              Login Gagal
+              Akses Ditolak
             </Text>
             <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed">
               {errorMessage}
