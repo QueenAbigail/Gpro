@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; 
-import { useCallback, useEffect, useState } from "react"; 
+import { useCallback, useEffect, useState, useRef } from "react"; 
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,9 @@ export default function HomeScreen() {
   const [dbUser, setDbUser] = useState<any>(null);
   const [dbAttendance, setDbAttendance] = useState<any>(null);
   const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
+  
+  // Ref untuk nampung timer biar nggak bentrok
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const setupPushNotifications = async () => {
@@ -29,7 +32,7 @@ export default function HomeScreen() {
         if (authData?.user) {
           await registerForPushNotificationsAsync(authData.user.id);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Gagal setup notifikasi:", error);
       }
     };
@@ -37,12 +40,23 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    // 1. Cuma jalanin kalau bener-bener "success"
     if (params?.showToast === "success") {
       setIsSuccessToastVisible(true);
-      router.setParams({ showToast: undefined } as any);
-      const timer = setTimeout(() => setIsSuccessToastVisible(false), 5000);
-      return () => clearTimeout(timer);
+
+      // 2. Set timer 5 detik
+      timerRef.current = setTimeout(() => {
+        setIsSuccessToastVisible(false);
+        
+        // 3. Hapus params TEPAT pas toast mau ilang
+        router.setParams({ showToast: undefined } as any);
+      }, 2000);
     }
+
+    // Cleanup: bakal jalan pas komponen unmount atau params berubah
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [params?.showToast]);
 
   const today = new Date();
@@ -53,18 +67,23 @@ export default function HomeScreen() {
 
     try {
       setLoading(true);
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
 
-      // 🛡️ Logika verifikasi sudah pindah ke LoginScreen, jadi di sini cukup ambil data saja.
-      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log("Debug: Sesi sudah tidak ada, fetch dibatalkan.");
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) throw new Error("AUTH_SESSION_MISSING");
+
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("*")
         .eq("id", authData.user.id)
         .maybeSingle();
 
-      if (userError) throw userError;
+      if (userError) throw new Error("DB_FETCH_USER_FAILED");
 
       const todayString = today.toISOString().split("T")[0];
       const { data: attendanceData, error: attendanceError } = await supabase
@@ -74,11 +93,14 @@ export default function HomeScreen() {
         .eq("date", todayString) 
         .maybeSingle();
 
+      if (attendanceError) throw new Error("DB_FETCH_ATTENDANCE_FAILED");
+
       setDbUser(userData);
       setDbAttendance(attendanceData || {});
+      
     } catch (error: any) {
-      if (error.message === "Gagal ambil sesi user") return;
-      Alert.alert("Error", "Gagal memuat data beranda.");
+      Alert.alert("DEBUG INFO", error.message || "Unknown Error");
+      if (error.message === "Gagal ambil sesi user" || error.message === "AUTH_SESSION_MISSING") return;
     } finally {
       setLoading(false);
     }

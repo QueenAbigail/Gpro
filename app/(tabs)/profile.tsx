@@ -32,20 +32,16 @@ export default function ProfileScreen() {
 
     try {
       setLoading(true);
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
 
-      // 1. Kalau ada error jaringan/server dari Supabase, baru throw ke catch
-      if (authError) throw authError;
-
-      // 2. 🔥 JALUR PENYELAMAT: Kalau user null (habis logout), langsung stop di sini.
-      // Ga bakal nge-throw error lagi ke block catch, jadi aman dari alert siluman!
-      if (!authData.user) {
+      // 🔥 FIX: Kalau ada error atau user null, jangan di-throw ke catch!
+      // Cukup berhenti (return) supaya nggak muncul alert saat logout.
+      if (authError || !authData?.user) {
         setLoading(false);
         return;
       }
 
-      // 3. Kalau user aman ada, baru lanjut tarik profile ke table 'users'
+      // Kalau user aman ada, baru lanjut tarik profile ke table 'users'
       const { data: profileData, error: profileError } = await supabase
         .from("users")
         .select(
@@ -72,7 +68,7 @@ export default function ProfileScreen() {
     }
   };
 
-  // Trigger otomatis setiap kali tab Profil dibuka (tapi ketahan gerbang cache kalau udah ada)
+  // Trigger otomatis setiap kali tab Profil dibuka
   useFocusEffect(
     useCallback(() => {
       fetchUserProfile();
