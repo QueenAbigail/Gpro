@@ -1,8 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { View } from "react-native";
+// 1. Import hook safe area untuk mendeteksi navbar sistem HP
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets(); // 👈 2. Ambil data jarak aman (insets) bawah HP
+
   return (
     <Tabs
       screenOptions={{
@@ -13,8 +17,12 @@ export default function TabLayout() {
           backgroundColor: "#ffffff",
           borderTopWidth: 1,
           borderTopColor: "#f3f4f6",
-          height: 65,
-          paddingBottom: 10,
+          
+          // 3. KUNCI PERBAIKAN DI SINI 🚀
+          // Tinggi dasar 65 ditambah dengan tinggi tombol navigasi HP (insets.bottom)
+          height: 65 + insets.bottom, 
+          // Jarak bawah dasar 10 ditambah dengan insets.bottom supaya teks terdorong ke atas tombol HP
+          paddingBottom: 10 + insets.bottom, 
           paddingTop: 10,
           elevation: 10, // Shadow yang lebih tebal biar elegan
         },
