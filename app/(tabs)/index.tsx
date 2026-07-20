@@ -3,7 +3,6 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState, useRef } from "react"; 
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   Text,
@@ -21,96 +20,98 @@ export default function HomeScreen() {
   const [dbUser, setDbUser] = useState<any>(null);
   const [dbAttendance, setDbAttendance] = useState<any>(null);
   const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0); 
   
-  // Ref untuk nampung timer biar nggak bentrok
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    const setupPushNotifications = async () => {
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        if (authData?.user) {
-          await registerForPushNotificationsAsync(authData.user.id);
-        }
-      } catch (error: any) {
-        console.error("Gagal setup notifikasi:", error);
-      }
-    };
-    setupPushNotifications();
-  }, []);
-
-  useEffect(() => {
-    // 1. Cuma jalanin kalau bener-bener "success"
-    if (params?.showToast === "success") {
-      setIsSuccessToastVisible(true);
-
-      // 2. Set timer 5 detik
-      timerRef.current = setTimeout(() => {
-        setIsSuccessToastVisible(false);
-        
-        // 3. Hapus params TEPAT pas toast mau ilang
-        router.setParams({ showToast: undefined } as any);
-      }, 2000);
-    }
-
-    // Cleanup: bakal jalan pas komponen unmount atau params berubah
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [params?.showToast]);
-
-  const today = new Date();
-  const formattedToday = today.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
-
+  // 1. Fetch data User & Attendance
   const fetchHomeData = async (isManual = false) => {
+    // Kalau cuma mau update manual (misal pas focus), kita bypass check null
     if (!isManual && dbUser && dbAttendance !== null) return;
 
     try {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.log("Debug: Sesi sudah tidak ada, fetch dibatalkan.");
-        return;
-      }
+      const [userRes, attendanceRes] = await Promise.all([
+        supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
+        supabase.from("attendances").select("*").eq("userId", user.id).eq("date", new Date().toISOString().split("T")[0]).maybeSingle()
+      ]);
 
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError || !authData.user) throw new Error("AUTH_SESSION_MISSING");
-
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", authData.user.id)
-        .maybeSingle();
-
-      if (userError) throw new Error("DB_FETCH_USER_FAILED");
-
-      const todayString = today.toISOString().split("T")[0];
-      const { data: attendanceData, error: attendanceError } = await supabase
-        .from("attendances")
-        .select("*")
-        .eq("userId", authData.user.id)
-        .eq("date", todayString) 
-        .maybeSingle();
-
-      if (attendanceError) throw new Error("DB_FETCH_ATTENDANCE_FAILED");
-
-      setDbUser(userData);
-      setDbAttendance(attendanceData || {});
-      
+      setDbUser(userRes.data);
+      setDbAttendance(attendanceRes.data || {});
     } catch (error: any) {
-      Alert.alert("DEBUG INFO", error.message || "Unknown Error");
-      if (error.message === "Gagal ambil sesi user" || error.message === "AUTH_SESSION_MISSING") return;
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
+  // 2. Fetch Badge Count (Terpisah biar fokus)
+  const fetchUnreadCount = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { count } = await supabase
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("is_read", false);
+
+    setUnreadCount(count || 0);
+  };
+
+  // 3. Setup Realtime Listener & Initial Load
+  useEffect(() => {
+    // Push Notification Setup
+    const setup = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await registerForPushNotificationsAsync(user.id);
+      
+      // Fetch data awal
+      fetchHomeData();
+      fetchUnreadCount();
+    };
+    setup();
+
+    // Channel Subscription
+    const channel = supabase
+      .channel("badge_channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => {
+          // Setiap ada perubahan di notif, kita re-fetch biar akurat
+          fetchUnreadCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // 4. Re-fetch data saat layar difokuskan (Jaminan Anti-Stuck)
   useFocusEffect(
     useCallback(() => {
-      fetchHomeData();
+      fetchHomeData(true);
+      fetchUnreadCount();
     }, [])
   );
+
+  // 5. Toast Timer
+  useEffect(() => {
+    if (params?.showToast === "success") {
+      setIsSuccessToastVisible(true);
+      timerRef.current = setTimeout(() => {
+        setIsSuccessToastVisible(false);
+        router.setParams({ showToast: undefined } as any);
+      }, 2000);
+    }
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [params?.showToast]);
 
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
@@ -118,9 +119,7 @@ export default function HomeScreen() {
   const formatTime = (timeString?: string) => {
     if (!timeString) return null;
     const d = new Date(timeString);
-    const h = d.getHours().toString().padStart(2, "0");
-    const m = d.getMinutes().toString().padStart(2, "0");
-    return `${h}:${m}`;
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   };
 
   const jamMasuk = formatTime(dbAttendance?.actualCheckIn);
@@ -160,15 +159,27 @@ export default function HomeScreen() {
               <Text className="text-xl font-extrabold text-gray-950">{fullName}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => router.push("/profile/notifications")} className="bg-white p-2 rounded-full shadow-sm border border-gray-200">
+          
+          <TouchableOpacity 
+            onPress={() => router.push("/profile/notifications")} 
+            className="relative bg-white p-2 rounded-full shadow-sm border border-gray-200"
+          >
             <Ionicons name="notifications-outline" size={22} color="#1f2937" />
+            {unreadCount > 0 && (
+              <View className="absolute -top-0.5 -right-0.5 bg-red-500 rounded-full w-5 h-5 items-center justify-center border-2 border-white">
+                <Text className="text-white text-[10px] font-bold">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
+        {/* --- Konten Lainnya Sama --- */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
           <View className="flex-row justify-between items-center mb-6">
             <Text className="text-gray-800 text-base font-bold">Status Kehadiran</Text>
-            <View className="bg-sky-50 px-3 py-1 rounded-full"><Text className="text-blue-600 font-semibold text-xs">{formattedToday}</Text></View>
+            <View className="bg-sky-50 px-3 py-1 rounded-full"><Text className="text-blue-600 font-semibold text-xs">{new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}</Text></View>
           </View>
           <View className="flex-row justify-between items-center">
             <View>
@@ -184,9 +195,7 @@ export default function HomeScreen() {
         </View>
 
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
-          <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-gray-900 font-bold text-lg">Menu Utama</Text>
-          </View>
+          <Text className="text-gray-900 font-bold text-lg mb-6">Menu Utama</Text>
           <View className="flex-row flex-wrap items-start">
             <TouchableOpacity onPress={() => router.push("/beranda/absen/masuk")} className="w-1/4 items-center mb-4">
               <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2"><Ionicons name="log-in" size={24} color="#3b82f6" /></View>
@@ -206,10 +215,12 @@ export default function HomeScreen() {
                 <Text className="text-gray-600 text-xs text-center leading-tight">Absen{"\n"}Anggota</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity onPress={() => router.push("/beranda/payroll/payroll-page" as any)} className="w-1/4 items-center mb-4">
+              <View className="w-12 h-12 rounded-full bg-green-50 items-center justify-center mb-2"><Ionicons name="receipt" size={24} color="#59dd7a" /></View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">Slip{"\n"}Gaji</Text>
+            </TouchableOpacity>
           </View>
         </View>
-
-        <View className="h-10" />
       </ScrollView>
     </View>
   );

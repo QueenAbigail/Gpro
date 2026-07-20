@@ -1,6 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createClient } from "@supabase/supabase-js";
-import "react-native-url-polyfill/auto";
+import 'react-native-url-polyfill/auto';
+import { createClient } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Nanti URL dan Key ini kita ganti pakai punya web kamu ya
 const supabaseUrl = "https://zztjtnawtmasuacbhppt.supabase.co";
