@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState, useRef } from "react"; 
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   Text,
@@ -22,11 +23,23 @@ export default function HomeScreen() {
   const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0); 
   
+  // State untuk Fitur SOS
+  const [isSendingSos, setIsSendingSos] = useState(false);
+  const [sosCooldown, setSosCooldown] = useState(0);
+  const [sosToastMessage, setSosToastMessage] = useState<string | null>(null);
+
+  // State Dummy untuk Pengumuman (Announcement)
+  const [announcements, setAnnouncements] = useState([
+    { id: "1", title: "Pembaruan SOP Kehadiran Karyawan Lapangan", date: "28 Jul 2026", isRead: false },
+    { id: "2", title: "Jadwal Pemeliharaan Sistem HRIS", date: "25 Jul 2026", isRead: true },
+    { id: "3", title: "Pemberitahuan Libur Cuti Bersama", date: "20 Jul 2026", isRead: true },
+  ]);
+
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 1. Fetch data User & Attendance
   const fetchHomeData = async (isManual = false) => {
-    // Kalau cuma mau update manual (misal pas focus), kita bypass check null
     if (!isManual && dbUser && dbAttendance !== null) return;
 
     try {
@@ -64,25 +77,21 @@ export default function HomeScreen() {
 
   // 3. Setup Realtime Listener & Initial Load
   useEffect(() => {
-    // Push Notification Setup
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) await registerForPushNotificationsAsync(user.id);
       
-      // Fetch data awal
       fetchHomeData();
       fetchUnreadCount();
     };
     setup();
 
-    // Channel Subscription
     const channel = supabase
       .channel("badge_channel")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
         () => {
-          // Setiap ada perubahan di notif, kita re-fetch biar akurat
           fetchUnreadCount();
         }
       )
@@ -93,7 +102,14 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // 4. Re-fetch data saat layar difokuskan (Jaminan Anti-Stuck)
+  // Clear Cooldown Timer saat komponen unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, []);
+
+  // 4. Re-fetch data saat layar difokuskan
   useFocusEffect(
     useCallback(() => {
       fetchHomeData(true);
@@ -112,6 +128,73 @@ export default function HomeScreen() {
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [params?.showToast]);
+
+  // 🆘 FUNGSI PENGIRIMAN PUSH NOTIFIKASI SOS
+  const handleTriggerSOS = async () => {
+    if (isSendingSos || sosCooldown > 0) return;
+
+    try {
+      setIsSendingSos(true);
+
+      if (!dbUser || !dbUser.siteId) {
+        Alert.alert("Gagal SOS", "Lokasi Site kamu tidak ditemukan.");
+        return;
+      }
+
+      const { data: siteUsers, error: fetchUsersError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("siteId", dbUser.siteId);
+
+      if (fetchUsersError || !siteUsers || siteUsers.length === 0) {
+        Alert.alert("Sinyal Terkirim", "Tidak ada rekan kerja lain di site ini.");
+        return;
+      }
+
+      const senderName = dbUser.name || "Seorang Karyawan";
+      const notificationInserts = siteUsers.map((member) => ({
+        userId: member.id,
+        title: "SOS!",
+        body: `${senderName} membutuhkan bantuan darurat di site kamu!`,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("notifications")
+        .insert(notificationInserts);
+
+      if (insertError) throw insertError;
+
+      setSosToastMessage("Sinyal Darurat SOS berhasil dikirim ke seluruh tim site!");
+      setTimeout(() => setSosToastMessage(null), 3500);
+
+      setSosCooldown(15);
+      cooldownTimerRef.current = setInterval(() => {
+        setSosCooldown((prev) => {
+          if (prev <= 1) {
+            if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+    } catch (error: any) {
+      console.error("Error triggering SOS:", error);
+      Alert.alert("Gagal Pengiriman SOS", error.message || "Gagal mengirimkan notifikasi darurat.");
+    } finally {
+      setIsSendingSos(false);
+    }
+  };
+
+  // 📢 FUNGSI BUKA PENGUMUMAN
+  const handleOpenAnnouncement = (id: string) => {
+    // Ubah status jadi Read secara lokal
+    setAnnouncements((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
+    );
+    // Navigasi ke halaman detail
+    router.push(`/beranda/announcement/${id}` as any);
+  };
 
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
@@ -147,7 +230,20 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <ScrollView className="flex-1 pt-14 px-5" showsVerticalScrollIndicator={false}>
+      {sosToastMessage && (
+        <View className="absolute top-14 left-6 right-6 bg-red-600 p-4 rounded-2xl flex-row items-center shadow-xl z-50">
+          <View className="w-8 h-8 bg-white/20 rounded-full items-center justify-center mr-3">
+            <Ionicons name="alert-circle" size={22} color="#ffffff" />
+          </View>
+          <View className="flex-1">
+            <Text className="text-white font-bold text-sm">SOS Terkirim!</Text>
+            <Text className="text-red-100 text-xs">{sosToastMessage}</Text>
+          </View>
+        </View>
+      )}
+
+      <ScrollView className="flex-1 pt-14 px-5" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        {/* Header */}
         <View className="flex-row justify-between items-center mb-8">
           <View className="flex-row items-center">
             <Image
@@ -175,7 +271,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* --- Konten Lainnya Sama --- */}
+        {/* Kehadiran */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
           <View className="flex-row justify-between items-center mb-6">
             <Text className="text-gray-800 text-base font-bold">Status Kehadiran</Text>
@@ -194,7 +290,29 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-10">
+        {/* SOS */}
+        <TouchableOpacity
+          onPress={handleTriggerSOS}
+          disabled={isSendingSos || sosCooldown > 0}
+          activeOpacity={0.8}
+          className={`w-full py-4 rounded-2xl flex-row items-center justify-center mb-6 shadow-lg ${
+            sosCooldown > 0 ? "bg-slate-400" : "bg-red-600"
+          }`}
+        >
+          {isSendingSos ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <>
+              <Ionicons name="warning" size={24} color="#ffffff" className="mr-2" />
+              <Text className="text-white font-black text-lg tracking-wider ml-2">
+                {sosCooldown > 0 ? `TUNGGU (${sosCooldown}s)` : "SOS EMERGENCY"}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {/* Menu Utama */}
+        <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
           <Text className="text-gray-900 font-bold text-lg mb-6">Menu Utama</Text>
           <View className="flex-row flex-wrap items-start">
             <TouchableOpacity onPress={() => router.push("/beranda/absen/masuk")} className="w-1/4 items-center mb-4">
@@ -219,7 +337,48 @@ export default function HomeScreen() {
               <View className="w-12 h-12 rounded-full bg-green-50 items-center justify-center mb-2"><Ionicons name="receipt" size={24} color="#59dd7a" /></View>
               <Text className="text-gray-600 text-xs text-center leading-tight">Slip{"\n"}Gaji</Text>
             </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/beranda/employee/employee" as any)} className="w-1/4 items-center mb-4">
+              <View className="w-12 h-12 rounded-full bg-teal-50 items-center justify-center mb-2"><Ionicons name="people-circle-outline" size={24} color="#14b8a6" /></View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">Data{"\n"}Karyawan</Text>
+            </TouchableOpacity>
           </View>
+        </View>
+
+        {/* 📢 PENGUMUMAN (ANNOUNCEMENT) */}
+        <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100">
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className="text-gray-900 font-bold text-lg">Pengumuman</Text>
+            <TouchableOpacity>
+              <Text className="text-sky-600 text-xs font-semibold">Lihat Semua</Text>
+            </TouchableOpacity>
+          </View>
+
+          {announcements.map((item, index) => (
+            <TouchableOpacity 
+              key={item.id} 
+              onPress={() => handleOpenAnnouncement(item.id)}
+              className={`flex-row items-center py-3 ${index !== announcements.length - 1 ? 'border-b border-gray-100' : ''}`}
+            >
+              <View className="w-10 h-10 rounded-full bg-sky-50 items-center justify-center mr-3">
+                <Ionicons name="megaphone-outline" size={20} color="#0ea5e9" />
+              </View>
+              
+              <View className="flex-1">
+                <Text 
+                  className={`text-sm mb-1 ${item.isRead ? 'text-gray-600 font-medium' : 'text-gray-900 font-bold'}`}
+                  numberOfLines={1}
+                >
+                  {item.title}
+                </Text>
+                <Text className="text-gray-400 text-xs">{item.date}</Text>
+              </View>
+
+              {/* Dot Merah jika Belum Dibaca */}
+              {!item.isRead && (
+                <View className="w-2.5 h-2.5 bg-red-500 rounded-full ml-2" />
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
       </ScrollView>
     </View>

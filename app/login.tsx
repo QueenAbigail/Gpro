@@ -117,9 +117,13 @@ export default function LoginScreen() {
       >
         <View className="items-center mb-10">
           <View className="w-28 h-28 bg-white rounded-3xl items-center justify-center mb-4 shadow-sm p-3 border border-sky-100">
-            {settingsLoading ? <ActivityIndicator color="#2563eb" /> : appLogo ? <Image source={{ uri: appLogo }} className="w-full h-full" resizeMode="contain" /> : <Ionicons name="business" size={50} color="#cbd5e1" />}
+            <Image 
+              source={require("../assets/images/login_icon.png")} 
+              className="w-full h-full" 
+              resizeMode="contain" 
+            />
           </View>
-          {settingsLoading ? <ActivityIndicator color="#2563eb" className="mb-2" /> : <Text className="text-3xl font-extrabold text-gray-900 mb-2 text-center">{appName}</Text>}
+          {settingsLoading ? <ActivityIndicator color="#2563eb" className="mb-2" /> : <Text className="text-3xl font-extrabold text-gray-900 mb-2 text-center">Pro Maxima Rajawali</Text>}
           <Text className="text-gray-500 text-center text-sm px-4">{settingsLoading ? "Memuat deskripsi..." : appDescription}</Text>
         </View>
 

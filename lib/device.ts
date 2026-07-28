@@ -69,7 +69,7 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
         });
 
       if (insertError) throw insertError;
-
+``
       return { success: true, message: 'Perangkat baru berhasil didaftarkan!' };
     }
 
