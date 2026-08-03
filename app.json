@@ -2,7 +2,7 @@
   "expo": {
     "name": "GlobalPro Mobile",
     "slug": "Globalpro_Mobile",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "globalpromobile",
@@ -26,9 +26,7 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "POST_NOTIFICATIONS",
-        "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES"
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
