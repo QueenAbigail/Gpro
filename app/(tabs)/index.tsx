@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; 
-import { useCallback, useEffect, useState, useRef } from "react"; 
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,8 +10,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; 
-import { registerForPushNotificationsAsync } from "../../lib/notifications"; 
+import { registerForPushNotificationsAsync } from "../../lib/notifications";
+import { supabase } from "../../lib/supabase";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -28,17 +28,13 @@ export default function HomeScreen() {
   const [sosCooldown, setSosCooldown] = useState(0);
   const [sosToastMessage, setSosToastMessage] = useState<string | null>(null);
 
-  // State Dummy untuk Pengumuman (Announcement)
-  const [announcements, setAnnouncements] = useState([
-    { id: "1", title: "Pembaruan SOP Kehadiran Karyawan Lapangan", date: "28 Jul 2026", isRead: false },
-    { id: "2", title: "Jadwal Pemeliharaan Sistem HRIS", date: "25 Jul 2026", isRead: true },
-    { id: "3", title: "Pemberitahuan Libur Cuti Bersama", date: "20 Jul 2026", isRead: true },
-  ]);
+  // 📢 State Pengumuman (Dinamis dari Database)
+  const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 1. Fetch data User & Attendance
+  // 1. Fetch data User, Attendance, & Pengumuman
   const fetchHomeData = async (isManual = false) => {
     if (!isManual && dbUser && dbAttendance !== null) return;
 
@@ -47,21 +43,49 @@ export default function HomeScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [userRes, attendanceRes] = await Promise.all([
+      const nowIso = new Date().toISOString();
+
+      // Jalankan query secara paralel untuk kecepatan
+      const [userRes, attendanceRes, announcementsRes, readStatusesRes] = await Promise.all([
         supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
-        supabase.from("attendances").select("*").eq("userId", user.id).eq("date", new Date().toISOString().split("T")[0]).maybeSingle()
+        supabase.from("attendances").select("*").eq("userId", user.id).eq("date", new Date().toISOString().split("T")[0]).maybeSingle(),
+        // Fetch 5 pengumuman terbaru yang aktif & belum expired
+        supabase
+          .from("announcements")
+          .select("*")
+          .eq("isActive", true)
+          .or(`expiresAt.is.null,expiresAt.gt.${nowIso}`)
+          .order("createdAt", { ascending: false })
+          .limit(5),
+        // Fetch status baca user ini
+        supabase
+          .from("announcement_read_statuses")
+          .select("announcementId")
+          .eq("userId", user.id)
       ]);
 
       setDbUser(userRes.data);
       setDbAttendance(attendanceRes.data || {});
+
+      // Olah data pengumuman & status dibaca
+      const readSet = new Set(readStatusesRes.data?.map((r) => r.announcementId) || []);
+      const formattedAnnouncements = (announcementsRes.data || []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        date: formatDate(item.createdAt),
+        isRead: readSet.has(item.id),
+      }));
+
+      setAnnouncements(formattedAnnouncements);
+
     } catch (error: any) {
-      console.error(error);
+      console.error("Error fetching home data:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. Fetch Badge Count (Terpisah biar fokus)
+  // 2. Fetch Badge Count Notifikasi
   const fetchUnreadCount = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -73,6 +97,13 @@ export default function HomeScreen() {
       .eq("is_read", false);
 
     setUnreadCount(count || 0);
+  };
+
+  // Helper Format Tanggal Indonesia
+  const formatDate = (dateString: string) => {
+    if (!dateString) return "";
+    const d = new Date(dateString);
+    return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
   };
 
   // 3. Setup Realtime Listener & Initial Load
@@ -87,13 +118,16 @@ export default function HomeScreen() {
     setup();
 
     const channel = supabase
-      .channel("badge_channel")
+      .channel("home_realtime_channel")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
-        () => {
-          fetchUnreadCount();
-        }
+        () => fetchUnreadCount()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "announcements" },
+        () => fetchHomeData(true)
       )
       .subscribe();
 
@@ -102,7 +136,7 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Clear Cooldown Timer saat komponen unmount
+  // Clear Cooldown Timer
   useEffect(() => {
     return () => {
       if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
@@ -129,7 +163,7 @@ export default function HomeScreen() {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [params?.showToast]);
 
-  // 🆘 FUNGSI PENGIRIMAN PUSH NOTIFIKASI SOS
+  // 🆘 FUNGSI PENGIRIMAN SOS
   const handleTriggerSOS = async () => {
     if (isSendingSos || sosCooldown > 0) return;
 
@@ -186,13 +220,28 @@ export default function HomeScreen() {
     }
   };
 
-  // 📢 FUNGSI BUKA PENGUMUMAN
-  const handleOpenAnnouncement = (id: string) => {
-    // Ubah status jadi Read secara lokal
-    setAnnouncements((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
-    );
-    // Navigasi ke halaman detail
+  // 📢 FUNGSI BUKA PENGUMUMAN & SIMPAN STATUS DIBACA
+  const handleOpenAnnouncement = async (id: string, isRead: boolean) => {
+    // 1. Ubah status secara lokal agar respon UI instan
+    if (!isRead) {
+      setAnnouncements((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
+      );
+
+      // 2. Simpan status dibaca ke database
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from("announcement_read_statuses")
+          .insert({
+            announcementId: id,
+            userId: user.id,
+            readAt: new Date().toISOString(),
+          });
+      }
+    }
+
+    // 3. Navigasi ke Halaman Detail Pengumuman
     router.push(`/beranda/announcement/${id}` as any);
   };
 
@@ -348,37 +397,44 @@ export default function HomeScreen() {
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100">
           <View className="flex-row justify-between items-center mb-4">
             <Text className="text-gray-900 font-bold text-lg">Pengumuman</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/beranda/announcement" as any)}>
               <Text className="text-sky-600 text-xs font-semibold">Lihat Semua</Text>
             </TouchableOpacity>
           </View>
 
-          {announcements.map((item, index) => (
-            <TouchableOpacity 
-              key={item.id} 
-              onPress={() => handleOpenAnnouncement(item.id)}
-              className={`flex-row items-center py-3 ${index !== announcements.length - 1 ? 'border-b border-gray-100' : ''}`}
-            >
-              <View className="w-10 h-10 rounded-full bg-sky-50 items-center justify-center mr-3">
-                <Ionicons name="megaphone-outline" size={20} color="#0ea5e9" />
-              </View>
-              
-              <View className="flex-1">
-                <Text 
-                  className={`text-sm mb-1 ${item.isRead ? 'text-gray-600 font-medium' : 'text-gray-900 font-bold'}`}
-                  numberOfLines={1}
-                >
-                  {item.title}
-                </Text>
-                <Text className="text-gray-400 text-xs">{item.date}</Text>
-              </View>
+          {announcements.length === 0 ? (
+            <View className="py-6 items-center">
+              <Ionicons name="megaphone-outline" size={32} color="#cbd5e1" />
+              <Text className="text-gray-400 text-xs mt-2">Belum ada pengumuman terbaru</Text>
+            </View>
+          ) : (
+            announcements.map((item, index) => (
+              <TouchableOpacity 
+                key={item.id} 
+                onPress={() => handleOpenAnnouncement(item.id, item.isRead)}
+                className={`flex-row items-center py-3 ${index !== announcements.length - 1 ? 'border-b border-gray-100' : ''}`}
+              >
+                <View className="w-10 h-10 rounded-full bg-sky-50 items-center justify-center mr-3">
+                  <Ionicons name="megaphone-outline" size={20} color="#0ea5e9" />
+                </View>
+                
+                <View className="flex-1">
+                  <Text 
+                    className={`text-sm mb-1 ${item.isRead ? 'text-gray-600 font-medium' : 'text-gray-900 font-bold'}`}
+                    numberOfLines={1}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text className="text-gray-400 text-xs">{item.date}</Text>
+                </View>
 
-              {/* Dot Merah jika Belum Dibaca */}
-              {!item.isRead && (
-                <View className="w-2.5 h-2.5 bg-red-500 rounded-full ml-2" />
-              )}
-            </TouchableOpacity>
-          ))}
+                {/* Dot Merah jika Belum Dibaca */}
+                {!item.isRead && (
+                  <View className="w-2.5 h-2.5 bg-red-500 rounded-full ml-2" />
+                )}
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       </ScrollView>
     </View>

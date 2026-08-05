@@ -1,7 +1,7 @@
 import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import { supabase } from './supabase'; // Sesuaikan dengan path file supabase lu
+import { supabase } from './supabase'; // Sesuaikan dengan path file supabase kamu
 
 // 1. Fungsi untuk mengambil ID unik hardware HP secara aman
 export const getUniqueDeviceId = async (): Promise<string> => {
@@ -14,7 +14,7 @@ export const getUniqueDeviceId = async (): Promise<string> => {
   return 'UNKNOWN_DEVICE_ID';
 };
 
-// 2. Fungsi Utama untuk Validasi & Binding Device (Tanpa RPC / Pure Client-Side Query)
+// 2. Fungsi Utama untuk Validasi & Binding Device (Pure Client-Side Query)
 export const handleDeviceVerification = async (userId: string): Promise<{ success: boolean; message: string }> => {
   try {
     const deviceId = await getUniqueDeviceId();
@@ -26,7 +26,6 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
       return { success: false, message: 'Gagal membaca Device ID pada perangkat ini.' };
     }
 
-    // ⚠️ PENTING: Pastikan "devices" di bawah ini sama dengan nama tabel lu di Supabase
     const NAMA_TABEL = 'device_bindings';
 
     // KONDISI AWAL: Cek apakah DEVICE ID HP ini udah terikat dengan akun manapun?
@@ -49,34 +48,45 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
 
       if (userError) throw userError;
 
-      if (userBinding) {
+      if (userBinding && userBinding.deviceId !== deviceId) {
         // User mau selingkuh pake HP baru, padahal akunnya udah nyangkut di HP lama
         return {
           success: false,
-          message: 'Akun lu sudah terikat di perangkat lain. Silakan hubungi admin HRIS untuk reset Device ID.',
+          message: 'Akun anda sudah terdaftar di perangkat lain. Silahkan hubungi admin HRIS untuk reset Device ID.',
         };
       }
 
-      // Aman! Akun kosong, HP kosong. Langsung daftarkan perangkat baru (INSERT)
-      const { error: insertError } = await supabase
+      // ✅ DIGANTI KE .upsert() BIAR AMAN DARI RACE CONDITION (ERROR 23505)
+      const { error: upsertError } = await supabase
         .from(NAMA_TABEL)
-        .insert({
-          userId: userId,
-          deviceId: deviceId,
-          deviceName: deviceName,
-          deviceType: deviceType,
-          appVersion: appVersion,
-        });
+        .upsert(
+          {
+            userId: userId,
+            deviceId: deviceId,
+            deviceName: deviceName,
+            deviceType: deviceType,
+            appVersion: appVersion,
+            lastUsed: new Date().toISOString(),
+          },
+          {
+            onConflict: 'userId, deviceType', // Sesuaikan dengan unique constraint di Supabase
+          }
+        );
 
-      if (insertError) throw insertError;
-``
+      if (upsertError) throw upsertError;
+
       return { success: true, message: 'Perangkat baru berhasil didaftarkan!' };
     }
 
     // --- SKENARIO B: DEVICE INI SUDAH TERDAFTAR DI DATABASE ---
     // Cek apakah pemilik device terdaftar ini MATCH dengan USER ID yang lagi login?
     if (deviceBinding.userId === userId) {
-      // ✅ COCOK! HP milik dia sendiri. Langsung lolos tanpa UPDATE apa-apa lagi
+      // Update lastUsed agar mencatat aktivitas login terbaru
+      await supabase
+        .from(NAMA_TABEL)
+        .update({ lastUsed: new Date().toISOString() })
+        .eq('deviceId', deviceId);
+
       return { success: true, message: 'Device terverifikasi.' };
     } else {
       // 🛑 HP ini udah dipakai/terikat sama akun karyawan lain!
@@ -88,7 +98,6 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
 
   } catch (error: any) {
     console.error('Error device verification:', error);
-    // Jika kena kendala koneksi atau RLS, kembalikan false secara anggun biar ditangkap index.tsx
     return { 
       success: false, 
       message: error.message || 'Gagal melakukan verifikasi perangkat akibat kendala database.' 

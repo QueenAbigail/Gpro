@@ -26,6 +26,10 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
+        "POST_NOTIFICATIONS",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
         "POST_NOTIFICATIONS"
       ]
     },
@@ -58,6 +62,12 @@
       "eas": {
         "projectId": "7b07d6b2-4fdf-4302-b236-414aeb025ee0"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7b07d6b2-4fdf-4302-b236-414aeb025ee0"
     }
   }
 }

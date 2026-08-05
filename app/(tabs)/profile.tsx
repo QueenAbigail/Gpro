@@ -4,7 +4,9 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
+  RefreshControl, // 👈 1. Tambahkan RefreshControl
   ScrollView,
   Text,
   TouchableOpacity,
@@ -15,44 +17,34 @@ import { supabase } from "../../lib/supabase";
 export default function ProfileScreen() {
   const router = useRouter();
 
-  // State untuk nyimpen data dari Supabase
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // 👈 State untuk Pull-to-Refresh
   const [dbUser, setDbUser] = useState<any>(null);
-  
-  // State buat kontrol visibilitas Pop-up Modal Aesthetic
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
-  // Parameter isManual dipakai biar tombol DEV bisa maksa lewatin cache
-  const fetchUserProfile = async (isManual = false) => {
-    // GERBANG TOL CACHE: Kalau bukan fetch manual dan data udah ada, skip!
-    if (!isManual && dbUser) {
-      console.log("Data udah ada di cache memori, skip fetch Supabase!");
-      return;
-    }
-
+  // Fungsi fetch data pintar (SWR Pattern)
+  const fetchUserProfile = async (isManualRefresh = false) => {
     try {
-      setLoading(true);
+      // 💡 CUMA TAMPILKAN SPINNER JIKA DATA SAMA SEKALI BELUM ADA DI MEMORI
+      if (!dbUser && !isManualRefresh) {
+        setLoading(true);
+      }
+
       const { data: authData, error: authError } = await supabase.auth.getUser();
 
-      // 🔥 FIX: Kalau ada error atau user null, jangan di-throw ke catch!
-      // Cukup berhenti (return) supaya nggak muncul alert saat logout.
       if (authError || !authData?.user) {
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
-      // Kalau user aman ada, baru lanjut tarik profile ke table 'users'
       const { data: profileData, error: profileError } = await supabase
         .from("users")
         .select(
           `
           *,
-          companies (
-            name
-          ),
-          sites (
-            name
-          )
+          companies ( name ),
+          sites ( name )
         `,
         )
         .eq("id", authData.user.id)
@@ -60,52 +52,85 @@ export default function ProfileScreen() {
 
       if (profileError) throw profileError;
 
+      // Update data secara halus di background
       setDbUser(profileData);
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Gagal memuat data profil.");
+      console.error("Gagal refresh profil:", error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Trigger otomatis setiap kali tab Profil dibuka
+  // Auto-sync setiap kali tab dibuka (TETAPI SILENT / TANPA SPINNER)
   useFocusEffect(
     useCallback(() => {
       fetchUserProfile();
-    }, [dbUser]),
+    }, []),
   );
 
-  // Fungsi eksekusi logout setelah user klik konfirmasi di dalam Modal
+  // Handler saat user tarik layar ke bawah (Pull-to-Refresh)
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchUserProfile(true);
+  };
+
+  const userAvatarUrl =
+    dbUser?.avatar ||
+    null;
+
   const handleExecuteLogout = async () => {
     setIsLogoutModalVisible(false);
     const { error } = await supabase.auth.signOut();
     if (error) {
       Alert.alert("Gagal Logout", error.message);
     } else {
-      // Hapus cache lokal sebelum pindah ke halaman login
       setDbUser(null);
       router.replace("/login");
     }
   };
 
+  // Jika PERTAMA KALI APPS DIBUKA dan data belum ada sama sekali, tampilkan skeleton/loading awal
+  if (loading && !dbUser) {
+    return (
+      <View className="flex-1 bg-slate-50 items-center justify-center">
+        <ActivityIndicator size="large" color="#3b82f6" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       className="flex-1 bg-slate-50 pt-16 px-6"
       contentContainerStyle={{ paddingBottom: 100 }}
+      // 👈 2. Tambahkan fitur Pull-to-Refresh di sini
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={["#3b82f6"]}
+          tintColor="#3b82f6"
+        />
+      }
     >
       <View className="items-center mb-8">
-        <View className="w-28 h-28 bg-blue-100 rounded-full items-center justify-center mb-4 border-4 border-white shadow-md">
-          <Ionicons name="person" size={50} color="#3b82f6" />
+        {/* Container Foto Profil */}
+        <View className="w-28 h-28 bg-blue-100 rounded-full items-center justify-center mb-4 border-4 border-white shadow-md overflow-hidden">
+          {userAvatarUrl ? (
+            <Image
+              source={{ uri: userAvatarUrl }}
+              className="w-full h-full"
+              resizeMode="cover"
+            />
+          ) : (
+            <Ionicons name="person" size={50} color="#3b82f6" />
+          )}
         </View>
 
-        {/* Nampilin Nama dari Database */}
-        {loading ? (
-          <ActivityIndicator color="#3b82f6" className="mb-2" />
-        ) : (
-          <Text className="text-2xl font-bold text-slate-800">
-            {dbUser?.name || "Nama Tidak Tersedia"}
-          </Text>
-        )}
+        {/* Nampilin Nama */}
+        <Text className="text-2xl font-bold text-slate-800">
+          {dbUser?.name || "Nama Tidak Tersedia"}
+        </Text>
 
         {/* Nampilin Jabatan */}
         <Text className="text-slate-500 font-medium mb-4">
@@ -120,10 +145,9 @@ export default function ProfileScreen() {
           <Text className="text-white font-bold ml-2 text-sm">Ganti Foto</Text>
         </TouchableOpacity>
 
-        {/* Tombol DEV - Cuma muncul kalau user ini SUPER_ADMIN atau ADMIN */}
         {(dbUser?.role === "SUPER_ADMIN" || dbUser?.role === "ADMIN") && (
           <TouchableOpacity
-            onPress={() => fetchUserProfile(true)} // parameter true buat maksa nembus cache
+            onPress={() => onRefresh()}
             className="bg-indigo-100 border border-indigo-200 py-2 px-4 rounded-xl items-center justify-center mt-4 flex-row border-dashed"
           >
             <Ionicons name="bug-outline" size={16} color="#4338ca" />
@@ -139,27 +163,16 @@ export default function ProfileScreen() {
           <Text className="text-slate-400 text-xs uppercase font-bold mb-1">
             ID Karyawan
           </Text>
-          {/* Nampilin ID dari Database */}
-          {loading ? (
-            <ActivityIndicator
-              size="small"
-              color="#cbd5e1"
-              className="self-start"
-            />
-          ) : (
-            <Text className="text-slate-800 text-base font-semibold">
-              {dbUser?.employeeCode || "Belum ada ID"}
-            </Text>
-          )}
+          <Text className="text-slate-800 text-base font-semibold">
+            {dbUser?.employeeCode || "Belum ada ID"}
+          </Text>
         </View>
         <View className="mb-4">
           <Text className="text-slate-400 text-xs uppercase font-bold mb-1">
             Client
           </Text>
           <Text className="text-slate-800 text-base font-semibold">
-            {loading
-              ? "Memuat..."
-              : dbUser?.companies?.name || "Belum ada data"}
+            {dbUser?.companies?.name || "Belum ada data"}
           </Text>
         </View>
         <View>
@@ -167,7 +180,7 @@ export default function ProfileScreen() {
             Site Penempatan
           </Text>
           <Text className="text-slate-800 text-base font-semibold">
-            {loading ? "Memuat..." : dbUser?.sites?.name || "Belum ada data"}
+            {dbUser?.sites?.name || "Belum ada data"}
           </Text>
         </View>
       </View>
@@ -215,7 +228,6 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
-      {/* Trigger Modal via state pas di-klik */}
       <TouchableOpacity
         onPress={() => setIsLogoutModalVisible(true)}
         className="flex-row items-center justify-center py-6 border-t border-slate-100 mt-4"
@@ -224,25 +236,18 @@ export default function ProfileScreen() {
         <Text className="text-red-500 font-bold ml-2">Keluar Aplikasi</Text>
       </TouchableOpacity>
 
-      {/* Komponen Custom Modal Pop-up Aesthetic */}
       <Modal
         transparent
         visible={isLogoutModalVisible}
         animationType="fade"
         onRequestClose={() => setIsLogoutModalVisible(false)}
       >
-        {/* Backdrop Transparan Gelap */}
         <View className="flex-1 bg-black/50 justify-center items-center px-6">
-          
-          {/* Card Pop-up */}
           <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
-            
-            {/* Lingkaran Icon Keluar */}
             <View className="w-14 h-14 bg-red-50 rounded-full items-center justify-center mb-4">
               <Ionicons name="log-out" size={26} color="#ef4444" />
             </View>
 
-            {/* Judul & Deskripsi */}
             <Text className="text-slate-800 font-bold text-lg text-center mb-2">
               Konfirmasi Keluar
             </Text>
@@ -250,17 +255,14 @@ export default function ProfileScreen() {
               Apakah Anda yakin ingin keluar dari aplikasi? Jangan lupa pastikan semua tugas patroli Anda hari ini sudah selesai.
             </Text>
 
-            {/* Barisan Tombol Aksi */}
             <View className="flex-row w-full justify-between gap-3">
-              {/* Tombol Batal */}
               <TouchableOpacity
                 onPress={() => setIsLogoutModalVisible(false)}
                 className="flex-1 bg-slate-100 py-3.5 rounded-2xl items-center active:bg-slate-200"
               >
                 <Text className="text-slate-600 font-bold text-sm">Batal</Text>
               </TouchableOpacity>
-              
-              {/* Tombol Keluar Pro */}
+
               <TouchableOpacity
                 onPress={handleExecuteLogout}
                 className="flex-1 bg-red-500 py-3.5 rounded-2xl items-center active:bg-red-600 shadow-sm"
@@ -268,11 +270,9 @@ export default function ProfileScreen() {
                 <Text className="text-white font-bold text-sm">Keluar</Text>
               </TouchableOpacity>
             </View>
-
           </View>
         </View>
       </Modal>
-
     </ScrollView>
   );
 }
