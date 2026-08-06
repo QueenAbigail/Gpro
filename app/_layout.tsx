@@ -1,10 +1,10 @@
 import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native"; // 💡 Tambah StyleSheet & Platform di sini
 import "../global.css";
+import { handleDeviceVerification } from "../lib/device";
 import { supabase } from "../lib/supabase";
-import { handleDeviceVerification } from "../lib/device"; 
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
@@ -77,7 +77,8 @@ export default function RootLayout() {
     );
   }
 
-  return (
+  // 📱 LOGIKA FORCE MOBILE UNTUK WEB
+  const renderContent = () => (
     <Stack>
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -88,4 +89,41 @@ export default function RootLayout() {
       <Stack.Screen name="+not-found" />
     </Stack>
   );
+
+  // Jika dibuka di browser web, bungkus dengan container simulasi HP di tengah layar
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.webWrapper}>
+        <View style={styles.mobileContainer}>
+          {renderContent()}
+        </View>
+      </View>
+    );
+  }
+
+  // Jika di Android asli, tampilkan penuh tanpa pembungkus ekstra
+  return renderContent();
 }
+
+// 🎨 STYLING KHUSUS TAMPILAN WEB / DESKTOP
+const styles = {
+  webWrapper: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  },
+  mobileContainer: {
+    width: '100%' as const,
+    maxWidth: 450,
+    height: '100%' as const,
+    maxHeight: '100%' as const, // 💡 Menggunakan '100%' menggantikan '100vh' agar tipenya valid
+    backgroundColor: '#ffffff',
+    
+    // Properti bayangan standar
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+  },
+};
