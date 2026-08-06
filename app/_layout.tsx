@@ -1,7 +1,7 @@
 import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native"; // 💡 Tambah StyleSheet & Platform di sini
+import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native"; // 💡 Tambah useWindowDimensions
 import "../global.css";
 import { handleDeviceVerification } from "../lib/device";
 import { supabase } from "../lib/supabase";
@@ -11,6 +11,7 @@ export default function RootLayout() {
   const [isInitialized, setIsInitialized] = useState(false);
   const router = useRouter();
   const segments = useSegments();
+  const { width } = useWindowDimensions(); // 💡 Ambil lebar layar secara dinamis
 
   // Fungsi untuk cek session + device
   const checkAuthAndDevice = async (currentSession: Session | null) => {
@@ -77,7 +78,7 @@ export default function RootLayout() {
     );
   }
 
-  // 📱 LOGIKA FORCE MOBILE UNTUK WEB
+  // 📱 LOGIKA RENDER STACK
   const renderContent = () => (
     <Stack>
       <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -90,8 +91,9 @@ export default function RootLayout() {
     </Stack>
   );
 
-  // Jika dibuka di browser web, bungkus dengan container simulasi HP di tengah layar
-  if (Platform.OS === 'web') {
+  // 💡 PERBAIKAN: Hanya pakai frame HP jika dibuka di WEB DESKTOP/LAPTOP (lebar layar > 500px).
+  // Jika dibuka di browser HP (width <= 500px) atau Native Android/iOS, langsung full screen!
+  if (Platform.OS === 'web' && width > 500) {
     return (
       <View style={styles.webWrapper}>
         <View style={styles.mobileContainer}>
@@ -101,24 +103,27 @@ export default function RootLayout() {
     );
   }
 
-  // Jika di Android asli, tampilkan penuh tanpa pembungkus ekstra
+  // Tampilan 100% Full Screen untuk Mobile Browser & Native App
   return renderContent();
 }
 
-// 🎨 STYLING KHUSUS TAMPILAN WEB / DESKTOP
+// 🎨 STYLING KHUSUS TAMPILAN WEB DESKTOP
 const styles = {
   webWrapper: {
     flex: 1,
     backgroundColor: '#0f172a',
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
+    minHeight: '100vh' as any,
   },
   mobileContainer: {
     width: '100%' as const,
     maxWidth: 450,
-    height: '100%' as const,
-    maxHeight: '100%' as const, // 💡 Menggunakan '100%' menggantikan '100vh' agar tipenya valid
+    height: '100vh' as any,
+    maxHeight: 900,
     backgroundColor: '#ffffff',
+    overflow: 'hidden' as const,
+    position: 'relative' as const,
     
     // Properti bayangan standar
     shadowColor: '#000000',
