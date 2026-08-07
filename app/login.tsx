@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // 👈 Untuk simpan cache lokal
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -12,10 +12,9 @@ import {
   View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { handleDeviceVerification } from "../lib/device"; // 🛡️ IMPORT SATPAM
+import { handleDeviceVerification } from "../lib/device";
 import { supabase } from "../lib/supabase";
 
-// Key unik untuk simpan cache di memori HP
 const CACHE_KEY_APP_SETTINGS = "@app_system_settings";
 
 export default function LoginScreen() {
@@ -27,7 +26,6 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // 1. Set Nilai Default Awal (Instan tampil tanpa spinner!)
   const [appName, setAppName] = useState("Pro Maxima Rajawali");
   const [appLogo, setAppLogo] = useState<string | null>(null);
   const [appDescription, setAppDescription] = useState(
@@ -38,7 +36,6 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    // Jalankan sistem cache & background sync
     initSystemSettings();
   }, []);
 
@@ -58,7 +55,6 @@ export default function LoginScreen() {
 
   const initSystemSettings = async () => {
     try {
-      // Step A: Coba baca cache dari lokal HP dulu
       const cachedData = await AsyncStorage.getItem(CACHE_KEY_APP_SETTINGS);
       if (cachedData) {
         const parsed = JSON.parse(cachedData);
@@ -67,7 +63,6 @@ export default function LoginScreen() {
         if (parsed.logoUrl) setAppLogo(parsed.logoUrl);
       }
 
-      // Step B: Tarik data terbaru dari Supabase secara SILENT di background
       const { data, error } = await supabase
         .from("system_settings")
         .select("*")
@@ -75,12 +70,10 @@ export default function LoginScreen() {
         .single();
 
       if (!error && data) {
-        // Update state kalau ada perubahan dari database
         if (data.appName) setAppName(data.appName);
         if (data.appDescription) setAppDescription(data.appDescription);
         if (data.logoUrl) setAppLogo(data.logoUrl);
 
-        // Simpan versi terbaru ke cache lokal HP
         await AsyncStorage.setItem(CACHE_KEY_APP_SETTINGS, JSON.stringify(data));
       }
     } catch (error) {
@@ -99,7 +92,6 @@ export default function LoginScreen() {
 
     const formattedEmail = email.includes("@") ? email : `${email}@hris.com`;
 
-    // 1. Proses Autentikasi
     const { data, error } = await supabase.auth.signInWithPassword({
       email: formattedEmail,
       password: password,
@@ -112,19 +104,17 @@ export default function LoginScreen() {
       return;
     }
 
-    // 2. KUNCI PENGAMAN (Check Device)
     if (data?.user) {
       const verification = await handleDeviceVerification(data.user.id);
 
       if (!verification.success) {
-        await supabase.auth.signOut(); // Tendang langsung
+        await supabase.auth.signOut();
         setLoading(false);
         setErrorMessage(verification.message || "Perangkat tidak diizinkan.");
         setIsErrorModalVisible(true);
         return;
       }
 
-      // 3. Jika Lolos, Masuk ke Beranda
       setLoading(false);
       router.replace({
         pathname: "/(tabs)",
@@ -149,7 +139,11 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="items-center mb-10">
-          <View className="w-28 h-28 bg-white rounded-3xl items-center justify-center mb-4 shadow-sm p-3 border border-sky-100">
+          {/* 💡 FIX WEB: Tambah overflow-hidden & inline style dimensi pasti */}
+          <View 
+            className="w-28 h-28 bg-white rounded-3xl items-center justify-center mb-4 shadow-sm p-3 border border-sky-100 overflow-hidden"
+            style={{ width: 112, height: 112 }}
+          >
             <Image
               source={
                 appLogo
@@ -157,11 +151,11 @@ export default function LoginScreen() {
                   : require("../assets/images/login_icon.png")
               }
               className="w-full h-full"
+              style={{ width: "100%", height: "100%" }} // 👈 FIX KUNCI: Kunci ukuran pasti di style
               resizeMode="contain"
             />
           </View>
 
-          {/* Render Instan Teks tanpa Spinner */}
           <Text className="text-3xl font-extrabold text-gray-900 mb-2 text-center">
             {appName}
           </Text>
