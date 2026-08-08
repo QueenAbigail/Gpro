@@ -1,7 +1,16 @@
 import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import { supabase } from './supabase'; // Sesuaikan dengan path file supabase kamu
+import { supabase } from './supabase';
+
+// Helper untuk deteksi apakah web dibuka dari browser HP (Mobile Web) atau Laptop/Desktop
+const checkIsMobileWeb = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+  const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+};
 
 // 1. Fungsi untuk mengambil ID unik hardware HP secara aman
 export const getUniqueDeviceId = async (): Promise<string> => {
@@ -14,9 +23,69 @@ export const getUniqueDeviceId = async (): Promise<string> => {
   return 'UNKNOWN_DEVICE_ID';
 };
 
-// 2. Fungsi Utama untuk Validasi & Binding Device (Pure Client-Side Query)
+// 2. Fungsi Utama untuk Validasi & Binding Device
 export const handleDeviceVerification = async (userId: string): Promise<{ success: boolean; message: string }> => {
   try {
+    // 🌐 SKENARIO 1: AKSES VIA WEB BROWSER
+    if (Platform.OS === 'web') {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('role, allowWebAppAccess')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userError) {
+        console.error('Error checking web access:', userError);
+        return {
+          success: false,
+          message: 'Gagal memverifikasi izin akses web pada akun Anda.',
+        };
+      }
+
+      if (!userData) {
+        return {
+          success: false,
+          message: 'Data pengguna tidak ditemukan.',
+        };
+      }
+
+      const isSuperAdmin = userData.role === 'SUPER_ADMIN';
+      const hasWebAccess = userData.allowWebAppAccess === true;
+      const isMobileWeb = checkIsMobileWeb();
+
+      // 👑 1. Jika SUPER_ADMIN: Bebas login di Web Mobile maupun Web Desktop
+      if (isSuperAdmin) {
+        return {
+          success: true,
+          message: 'Akses web diizinkan.',
+        };
+      }
+
+      // 🛑 2. Jika bukan SUPER_ADMIN tapi allowWebAppAccess = false / null: Ditolak
+      if (!hasWebAccess) {
+        return {
+          success: false,
+          message: 'Akun Anda tidak memiliki izin untuk akses via Web Browser.',
+        };
+      }
+
+      // 📱💻 3. Jika allowWebAppAccess = true: Cek jenis browser-nya
+      if (isMobileWeb) {
+        // Lolos jika dari Mobile Web Browser
+        return {
+          success: true,
+          message: 'Akses web mobile diizinkan.',
+        };
+      } else {
+        // Ditolak jika dibuka dari Desktop Web Browser
+        return {
+          success: false,
+          message: 'Akses via Web Desktop hanya diperuntukkan bagi Admin.',
+        };
+      }
+    }
+
+    // 📱 SKENARIO 2: AKSES VIA NATIVE APP (ANDROID / IOS)
     const deviceId = await getUniqueDeviceId();
     const deviceName = Device.modelName || Device.designName || 'Unknown Device';
     const deviceType = Platform.OS;
@@ -39,7 +108,6 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
 
     // --- SKENARIO A: DEVICE INI BELUM TERDAFTAR SAMA SEKALI ---
     if (!deviceBinding) {
-      // Cek dulu, apakah USER ID yang mau login ini sebenernya udah punya HP lain yang terikat?
       const { data: userBinding, error: userError } = await supabase
         .from(NAMA_TABEL)
         .select('*')
@@ -49,14 +117,12 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
       if (userError) throw userError;
 
       if (userBinding && userBinding.deviceId !== deviceId) {
-        // User mau selingkuh pake HP baru, padahal akunnya udah nyangkut di HP lama
         return {
           success: false,
           message: 'Akun anda sudah terdaftar di perangkat lain. Silahkan hubungi admin HRIS untuk reset Device ID.',
         };
       }
 
-      // ✅ DIGANTI KE .upsert() BIAR AMAN DARI RACE CONDITION (ERROR 23505)
       const { error: upsertError } = await supabase
         .from(NAMA_TABEL)
         .upsert(
@@ -69,7 +135,7 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
             lastUsed: new Date().toISOString(),
           },
           {
-            onConflict: 'userId, deviceType', // Sesuaikan dengan unique constraint di Supabase
+            onConflict: 'userId, deviceType',
           }
         );
 
@@ -79,9 +145,7 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
     }
 
     // --- SKENARIO B: DEVICE INI SUDAH TERDAFTAR DI DATABASE ---
-    // Cek apakah pemilik device terdaftar ini MATCH dengan USER ID yang lagi login?
     if (deviceBinding.userId === userId) {
-      // Update lastUsed agar mencatat aktivitas login terbaru
       await supabase
         .from(NAMA_TABEL)
         .update({ lastUsed: new Date().toISOString() })
@@ -89,7 +153,6 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
 
       return { success: true, message: 'Device terverifikasi.' };
     } else {
-      // 🛑 HP ini udah dipakai/terikat sama akun karyawan lain!
       return {
         success: false,
         message: 'Perangkat ini sudah digunakan oleh akun lain. Satu perangkat hanya diizinkan untuk satu akun karyawan.',
