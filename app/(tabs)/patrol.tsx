@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan path Supabase lu Can
+import { supabase } from "../../lib/supabase"; // Sesuaikan path Supabase kamu
 
 export default function PatrolScreen() {
   const router = useRouter();
@@ -65,7 +65,7 @@ export default function PatrolScreen() {
             const sortedReports = [...matchedReports].sort(
               (a, b) =>
                 new Date(b.createdAt).getTime() -
-                new Date(a.createdAt).getTime(),
+                new Date(a.createdAt).getTime()
             );
             const latestDate = new Date(sortedReports[0].createdAt);
             lastCheckedTime = latestDate.toLocaleTimeString("id-ID", {
@@ -76,7 +76,7 @@ export default function PatrolScreen() {
 
           return {
             id: loc.id,
-            location: loc.name || loc.location, // Mengantisipasi nama kolom name/location di DB lu
+            location: loc.name || loc.location, // Mengantisipasi nama kolom name/location di DB
             lastChecked: lastCheckedTime,
             reportCount: matchedReports.length,
           };
@@ -95,7 +95,21 @@ export default function PatrolScreen() {
   }, []);
 
   return (
-    <ScrollView className="flex-1 bg-slate-50 pt-12 px-5">
+    <ScrollView 
+      className="flex-1 bg-slate-50 pt-14 px-5"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 100 }}
+    >
+      {/* 🚀 HEADER UTAMA HALAMAN PATROLI */}
+      <View className="mb-6">
+        <Text className="text-2xl font-extrabold text-slate-950">
+          Laporan Patroli
+        </Text>
+        <Text className="text-slate-500 text-xs mt-1">
+          Pantau status titik lokasi & laporan patroli harian
+        </Text>
+      </View>
+
       {/* 1. Card Laporan Patroli — MASKING: Selain Staff yang bisa lihat */}
       {userRole !== "STAFF" && userRole !== "" && (
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
@@ -103,7 +117,7 @@ export default function PatrolScreen() {
             Pantau Aktivitas
           </Text>
           <TouchableOpacity
-            onPress={() => router.push("/patrol/member-reports")}
+            onPress={() => router.push("/patrol/member-reports" as any)}
             className="bg-blue-500 flex-row items-center justify-center py-4 rounded-xl shadow-sm active:bg-blue-600"
           >
             <Ionicons name="clipboard" size={24} color="white" />
@@ -115,7 +129,7 @@ export default function PatrolScreen() {
       )}
 
       {/* 2. Card List Titik Patroli */}
-      <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-8">
+      <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-slate-800 text-lg font-bold">
             Titik Patroli Hari Ini
@@ -140,7 +154,7 @@ export default function PatrolScreen() {
               <TouchableOpacity
                 key={item.id}
                 activeOpacity={0.6}
-                onPress={() => router.push(`/patrol/${item.id}`)}
+                onPress={() => router.push(`/patrol/${item.id}` as any)}
                 className={`flex-row items-center justify-between py-3 ${
                   index !== patrolPoints.length - 1
                     ? "border-b border-slate-100"
@@ -208,7 +222,7 @@ export default function PatrolScreen() {
               params: { locationId: "1" },
             })
           }
-          className="bg-indigo-100 border border-indigo-200 py-4 rounded-xl items-center justify-center mb-10 flex-row border-dashed"
+          className="bg-indigo-100 border border-indigo-200 py-4 rounded-xl items-center justify-center mb-6 flex-row border-dashed"
         >
           <Ionicons name="bug-outline" size={20} color="#4338ca" />
           <Text className="text-indigo-700 font-bold ml-2">

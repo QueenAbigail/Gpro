@@ -1,8 +1,9 @@
 import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native"; // 💡 Tambah useWindowDimensions
+import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native";
 import "../global.css";
+import UpdateModal from "../components/UpdateModal"; // 💡 1. Tambah Import Modal
 import { handleDeviceVerification } from "../lib/device";
 import { supabase } from "../lib/supabase";
 
@@ -11,7 +12,7 @@ export default function RootLayout() {
   const [isInitialized, setIsInitialized] = useState(false);
   const router = useRouter();
   const segments = useSegments();
-  const { width } = useWindowDimensions(); // 💡 Ambil lebar layar secara dinamis
+  const { width } = useWindowDimensions();
 
   // Fungsi untuk cek session + device
   const checkAuthAndDevice = async (currentSession: Session | null) => {
@@ -79,16 +80,22 @@ export default function RootLayout() {
   }
 
   // 📱 LOGIKA RENDER STACK
+  // 💡 2. Dibungkus React Fragment (<> ... </>) biar bisa nampung Modal di luar Stack
   const renderContent = () => (
-    <Stack>
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="patrol" options={{ headerShown: false }} />
-      <Stack.Screen name="profile" options={{ headerShown: false }} />
-      <Stack.Screen name="leave" options={{ headerShown: false }} />
-      <Stack.Screen name="beranda" options={{ headerShown: false }} />
-      <Stack.Screen name="+not-found" />
-    </Stack>
+    <>
+      <Stack>
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="patrol" options={{ headerShown: false }} />
+        <Stack.Screen name="profile" options={{ headerShown: false }} />
+        <Stack.Screen name="leave" options={{ headerShown: false }} />
+        <Stack.Screen name="beranda" options={{ headerShown: false }} />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+
+      {/* Modal update otomatis ditaruh di sini */}
+      <UpdateModal />
+    </>
   );
 
   // 💡 PERBAIKAN: Hanya pakai frame HP jika dibuka di WEB DESKTOP/LAPTOP (lebar layar > 500px).

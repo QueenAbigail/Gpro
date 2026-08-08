@@ -80,108 +80,114 @@ export default function LeaveScreen() {
   };
 
   return (
-    <View className="flex-1 bg-slate-50">
-      <View className="pt-16 pb-4 px-6 bg-white border-b border-slate-100 shadow-sm z-10">
-        <Text className="text-2xl font-bold text-slate-800">Perizinan</Text>
-        <Text className="text-slate-500 mt-1">
+    <ScrollView
+      className="flex-1 bg-slate-50 pt-14 px-5"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 100 }}
+    >
+      {/* 🚀 HEADER UTAMA HALAMAN PERIZINAN */}
+      <View className="mb-6">
+        <Text className="text-2xl font-extrabold text-slate-950">
+          Perizinan
+        </Text>
+        <Text className="text-slate-500 text-xs mt-1">
           Buat pengajuan sakit, izin, atau tukar shift
         </Text>
       </View>
 
-      <ScrollView
-        className="flex-1 px-6 pt-6"
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        <Text className="text-slate-800 font-bold text-lg mb-4">
-          Buat Pengajuan Baru
+      {/* SECTION: BUAT PENGAJUAN BARU */}
+      <Text className="text-slate-800 font-bold text-lg mb-4">
+        Buat Pengajuan Baru
+      </Text>
+      <View className="flex-row justify-between mb-8">
+        <TouchableOpacity
+          onPress={() => router.push("/leave/sakit" as any)}
+          className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3"
+        >
+          <View className="w-12 h-12 bg-red-50 rounded-full items-center justify-center mb-2">
+            <Ionicons name="medkit" size={24} color="#ef4444" />
+          </View>
+          <Text className="text-slate-700 font-semibold text-sm">Sakit</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push("/leave/izin" as any)}
+          className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3"
+        >
+          <View className="w-12 h-12 bg-amber-50 rounded-full items-center justify-center mb-2">
+            <Ionicons name="document-text" size={24} color="#f59e0b" />
+          </View>
+          <Text className="text-slate-700 font-semibold text-sm">Cuti</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push("/leave/tukar-shift" as any)}
+          className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm"
+        >
+          <View className="w-12 h-12 bg-blue-50 rounded-full items-center justify-center mb-2">
+            <Ionicons name="swap-horizontal" size={24} color="#3b82f6" />
+          </View>
+          <Text className="text-slate-700 font-semibold text-sm text-center">
+            Tukar Shift
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* SECTION: RIWAYAT PENGAJUAN */}
+      <View className="flex-row justify-between items-center mb-4">
+        <Text className="text-slate-800 font-bold text-lg">
+          Riwayat Pengajuan
         </Text>
-        <View className="flex-row justify-between mb-8">
-          <TouchableOpacity
-            onPress={() => router.push("/leave/sakit")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3"
-          >
-            <View className="w-12 h-12 bg-red-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="medkit" size={24} color="#ef4444" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm">Sakit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push("/leave/izin")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm mr-3"
-          >
-            <View className="w-12 h-12 bg-amber-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="document-text" size={24} color="#f59e0b" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm">Cuti</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push("/leave/tukar-shift")}
-            className="flex-1 bg-white p-4 rounded-2xl items-center border border-slate-100 shadow-sm"
-          >
-            <View className="w-12 h-12 bg-blue-50 rounded-full items-center justify-center mb-2">
-              <Ionicons name="swap-horizontal" size={24} color="#3b82f6" />
-            </View>
-            <Text className="text-slate-700 font-semibold text-sm text-center">
-              Tukar Shift
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View className="flex-row justify-between items-center mb-4">
-          <Text className="text-slate-800 font-bold text-lg">
-            Riwayat Pengajuan
+        <TouchableOpacity onPress={() => router.push("/leave/history" as any)}>
+          <Text className="text-blue-500 font-semibold text-sm">
+            Lihat Semua
           </Text>
-          <TouchableOpacity onPress={() => router.push("/leave/history")}>
-            <Text className="text-blue-500 font-semibold text-sm">
-              Lihat Semua
-            </Text>
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
+      </View>
 
-        {loading ? (
-          <ActivityIndicator size="small" color="#3b82f6" />
-        ) : history.length === 0 ? (
-          <Text className="text-slate-400 text-center mt-4">
-            Belum ada riwayat pengajuan.
-          </Text>
-        ) : (
-          history.map((item) => {
-            const statusStyle = getStatusStyle(item.status);
-            return (
-              <TouchableOpacity
-                key={item.id}
-                className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center"
-              >
-                <View className="w-12 h-12 bg-slate-50 rounded-full items-center justify-center mr-4">
-                  <Ionicons
-                    name={getTypeIcon(item.leaveType) as any}
-                    size={24}
-                    color="#64748b"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-slate-800 font-bold mb-1">
-                    {item.leaveType}
-                  </Text>
-                  <Text className="text-slate-500 text-xs mb-1">
-                    {formatDate(item.startDate)}
-                  </Text>
-                  <Text className="text-slate-400 text-xs" numberOfLines={1}>
-                    "{item.reason}"
-                  </Text>
-                </View>
-                <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>
-                  <Text
-                    className={`text-[10px] font-bold uppercase ${statusStyle.text}`}
-                  >
-                    {item.status}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
-    </View>
+      {loading ? (
+        <ActivityIndicator size="small" color="#3b82f6" className="py-4" />
+      ) : history.length === 0 ? (
+        <Text className="text-slate-400 text-center mt-4 text-sm">
+          Belum ada riwayat pengajuan.
+        </Text>
+      ) : (
+        history.map((item) => {
+          const statusStyle = getStatusStyle(item.status);
+          return (
+            <TouchableOpacity
+              key={item.id}
+              className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center"
+            >
+              <View className="w-12 h-12 bg-slate-50 rounded-full items-center justify-center mr-4">
+                <Ionicons
+                  name={getTypeIcon(item.leaveType) as any}
+                  size={24}
+                  color="#64748b"
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-slate-800 font-bold mb-1">
+                  {item.leaveType}
+                </Text>
+                <Text className="text-slate-500 text-xs mb-1">
+                  {formatDate(item.startDate)}
+                </Text>
+                <Text className="text-slate-400 text-xs" numberOfLines={1}>
+                  "{item.reason}"
+                </Text>
+              </View>
+              <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>
+                <Text
+                  className={`text-[10px] font-bold uppercase ${statusStyle.text}`}
+                >
+                  {item.status}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })
+      )}
+    </ScrollView>
   );
 }

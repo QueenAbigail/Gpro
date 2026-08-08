@@ -166,16 +166,16 @@ export default function PengajuanIzinScreen() {
   return (
     <View className="flex-1 bg-slate-50">
       {/* Header */}
-      <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-slate-100 shadow-sm z-10">
-        <TouchableOpacity
+      <View className="pt-14 pb-2 px-6 bg-white flex-row items-center">
+       <TouchableOpacity
           onPress={() => router.back()}
-          className="w-10 h-10 bg-slate-50 rounded-full items-center justify-center mr-4 active:bg-slate-100"
+          className="w-10 h-10 bg-slate-100 rounded-full items-center justify-center mr-3 active:bg-slate-200"
         >
-          <Ionicons name="arrow-back" size={20} color="#334155" />
+          <Ionicons name="arrow-back" size={20} color="#0f172a" />
         </TouchableOpacity>
-        <View>
-          <Text className="text-xl font-bold text-slate-800">Pengajuan Cuti</Text>
-          <Text className="text-slate-500 text-xs mt-0.5">Isi form & upload dokumen persetujuan</Text>
+        <View className="flex-1">
+          <Text className="text-2xl font-bold text-slate-900">Pengajuan Izin</Text>
+          <Text className="text-slate-500 text-xs mt-0.5">Isi form & lampirkan dokumen persetujuan</Text>
         </View>
       </View>
 

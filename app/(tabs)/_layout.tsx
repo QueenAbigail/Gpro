@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 // 1. Import hook safe area untuk mendeteksi navbar sistem HP
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets(); // 👈 2. Ambil data jarak aman (insets) bawah HP
+  const insets = useSafeAreaInsets(); // 👈 Ambil data jarak aman (insets) bawah HP
+  const isWeb = Platform.OS === "web"; // 👈 Cek apakah berjalan di Web Browser
 
   return (
     <Tabs
@@ -17,18 +18,18 @@ export default function TabLayout() {
           backgroundColor: "#ffffff",
           borderTopWidth: 1,
           borderTopColor: "#f3f4f6",
-          
-          // 3. KUNCI PERBAIKAN DI SINI 🚀
-          // Tinggi dasar 65 ditambah dengan tinggi tombol navigasi HP (insets.bottom)
-          height: 65 + insets.bottom, 
-          // Jarak bawah dasar 10 ditambah dengan insets.bottom supaya teks terdorong ke atas tombol HP
-          paddingBottom: 10 + insets.bottom, 
-          paddingTop: 10,
+
+          // 🚀 KUNCI PERBAIKAN DI SINI
+          // Di Web kita beri height & padding khusus agar teks tidak terpotong
+          height: isWeb ? 80 : 65 + insets.bottom,
+          paddingBottom: isWeb ? 12 : 10 + insets.bottom,
+          paddingTop: isWeb ? 8 : 10,
           elevation: 10, // Shadow yang lebih tebal biar elegan
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "600",
+          marginBottom: isWeb ? 2 : 0,
         },
       }}
     >
@@ -59,8 +60,6 @@ export default function TabLayout() {
         name="scan"
         options={{
           title: "Scan",
-          // Trik biar tombolnya melayang: kita bungkus icon pakai View bulat,
-          // kasih background biru, border putih tebal, lalu kita dorong ke atas pakai `top: -15`
           tabBarIcon: () => (
             <View
               className="bg-blue-500 w-16 h-16 rounded-full items-center justify-center border-[4px] border-white shadow-md"

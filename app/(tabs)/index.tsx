@@ -15,14 +15,14 @@ import { supabase } from "../../lib/supabase";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams(); 
+  const params = useLocalSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [dbUser, setDbUser] = useState<any>(null);
   const [dbAttendance, setDbAttendance] = useState<any>(null);
   const [isSuccessToastVisible, setIsSuccessToastVisible] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0); 
-  
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // State untuk Fitur SOS
   const [isSendingSos, setIsSendingSos] = useState(false);
   const [sosCooldown, setSosCooldown] = useState(0);
@@ -34,12 +34,14 @@ export default function HomeScreen() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 1. Fetch data User, Attendance, & Pengumuman
-  const fetchHomeData = async (isManual = false) => {
-    if (!isManual && dbUser && dbAttendance !== null) return;
-
+  // 1. Fetch data User, Attendance, & Pengumuman (dengan Silent Sync)
+  const fetchHomeData = async (isSilent = false) => {
     try {
-      setLoading(true);
+      // Hanya tampilkan loading penuh jika BUKAN silent sync dan data user belum ada
+      if (!isSilent && !dbUser) {
+        setLoading(true);
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -64,7 +66,9 @@ export default function HomeScreen() {
           .eq("userId", user.id)
       ]);
 
-      setDbUser(userRes.data);
+      if (userRes.data) {
+        setDbUser(userRes.data);
+      }
       setDbAttendance(attendanceRes.data || {});
 
       // Olah data pengumuman & status dibaca
@@ -111,8 +115,8 @@ export default function HomeScreen() {
     const setup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) await registerForPushNotificationsAsync(user.id);
-      
-      fetchHomeData();
+
+      fetchHomeData(false);
       fetchUnreadCount();
     };
     setup();
@@ -143,7 +147,7 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // 4. Re-fetch data saat layar difokuskan
+  // 4. Silent Re-fetch data saat layar difokuskan kembali
   useFocusEffect(
     useCallback(() => {
       fetchHomeData(true);
@@ -222,13 +226,11 @@ export default function HomeScreen() {
 
   // 📢 FUNGSI BUKA PENGUMUMAN & SIMPAN STATUS DIBACA
   const handleOpenAnnouncement = async (id: string, isRead: boolean) => {
-    // 1. Ubah status secara lokal agar respon UI instan
     if (!isRead) {
       setAnnouncements((prev) =>
         prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
       );
 
-      // 2. Simpan status dibaca ke database
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         await supabase
@@ -241,12 +243,17 @@ export default function HomeScreen() {
       }
     }
 
-    // 3. Navigasi ke Halaman Detail Pengumuman
     router.push(`/beranda/announcement/${id}` as any);
   };
 
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
+
+  // Priority foto: kolom avatar -> kolom photoUrl -> UI Avatars Fallback
+  const userPhotoUri =
+    dbUser?.avatar ||
+    dbUser?.photoUrl ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName)}&background=0b5394&color=fff&size=128`;
 
   const formatTime = (timeString?: string) => {
     if (!timeString) return null;
@@ -296,7 +303,7 @@ export default function HomeScreen() {
         <View className="flex-row justify-between items-center mb-8">
           <View className="flex-row items-center">
             <Image
-              source={{ uri: dbUser?.photoUrl || `https://ui-avatars.com/api/?name=${firstName}&background=0b5394&color=fff&size=128` }}
+              source={{ uri: userPhotoUri }}
               className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm"
             />
             <View>
@@ -428,7 +435,6 @@ export default function HomeScreen() {
                   <Text className="text-gray-400 text-xs">{item.date}</Text>
                 </View>
 
-                {/* Dot Merah jika Belum Dibaca */}
                 {!item.isRead && (
                   <View className="w-2.5 h-2.5 bg-red-500 rounded-full ml-2" />
                 )}

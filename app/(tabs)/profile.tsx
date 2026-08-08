@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
@@ -6,7 +7,7 @@ import {
   Alert,
   Image,
   Modal,
-  RefreshControl, // 👈 1. Tambahkan RefreshControl
+  RefreshControl,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -18,14 +19,13 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false); // 👈 State untuk Pull-to-Refresh
+  const [refreshing, setRefreshing] = useState(false);
   const [dbUser, setDbUser] = useState<any>(null);
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
   // Fungsi fetch data pintar (SWR Pattern)
   const fetchUserProfile = async (isManualRefresh = false) => {
     try {
-      // 💡 CUMA TAMPILKAN SPINNER JIKA DATA SAMA SEKALI BELUM ADA DI MEMORI
       if (!dbUser && !isManualRefresh) {
         setLoading(true);
       }
@@ -52,7 +52,6 @@ export default function ProfileScreen() {
 
       if (profileError) throw profileError;
 
-      // Update data secara halus di background
       setDbUser(profileData);
     } catch (error: any) {
       console.error("Gagal refresh profil:", error.message);
@@ -62,22 +61,18 @@ export default function ProfileScreen() {
     }
   };
 
-  // Auto-sync setiap kali tab dibuka (TETAPI SILENT / TANPA SPINNER)
   useFocusEffect(
     useCallback(() => {
       fetchUserProfile();
     }, []),
   );
 
-  // Handler saat user tarik layar ke bawah (Pull-to-Refresh)
   const onRefresh = () => {
     setRefreshing(true);
     fetchUserProfile(true);
   };
 
-  const userAvatarUrl =
-    dbUser?.avatar ||
-    null;
+  const userAvatarUrl = dbUser?.avatar || null;
 
   const handleExecuteLogout = async () => {
     setIsLogoutModalVisible(false);
@@ -90,7 +85,6 @@ export default function ProfileScreen() {
     }
   };
 
-  // Jika PERTAMA KALI APPS DIBUKA dan data belum ada sama sekali, tampilkan skeleton/loading awal
   if (loading && !dbUser) {
     return (
       <View className="flex-1 bg-slate-50 items-center justify-center">
@@ -103,7 +97,7 @@ export default function ProfileScreen() {
     <ScrollView
       className="flex-1 bg-slate-50 pt-16 px-6"
       contentContainerStyle={{ paddingBottom: 100 }}
-      // 👈 2. Tambahkan fitur Pull-to-Refresh di sini
+      showsVerticalScrollIndicator={false} // 👈 Sembunyikan Scrollbar
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -228,14 +222,23 @@ export default function ProfileScreen() {
         <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
       </TouchableOpacity>
 
+      {/* Tombol Logout */}
       <TouchableOpacity
         onPress={() => setIsLogoutModalVisible(true)}
-        className="flex-row items-center justify-center py-6 border-t border-slate-100 mt-4"
+        className="flex-row items-center justify-center py-5 border-t border-slate-100 mt-2"
       >
         <Ionicons name="log-out" size={20} color="#ef4444" />
         <Text className="text-red-500 font-bold ml-2">Keluar Aplikasi</Text>
       </TouchableOpacity>
 
+      {/* Teks Versi Aplikasi */}
+      <View className="items-center pt-2 pb-6">
+        <Text className="text-slate-400 text-xs font-semibold">
+          GlobalPro Mobile v{Constants.expoConfig?.version ?? "1.0.0"}
+        </Text>
+      </View>
+
+      {/* Modal Konfirmasi Logout */}
       <Modal
         transparent
         visible={isLogoutModalVisible}
