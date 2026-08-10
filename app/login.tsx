@@ -183,7 +183,7 @@ export default function LoginScreen() {
               />
               <TextInput
                 className="flex-1 text-gray-800 font-medium ml-2"
-                placeholder="Contoh: admin@hris.com"
+                placeholder="Contoh: 123-45-JBR-SO"
                 placeholderTextColor="#9ca3af"
                 keyboardType="email-address"
                 autoCapitalize="none"
