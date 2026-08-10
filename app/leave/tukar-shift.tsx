@@ -180,7 +180,7 @@ export default function TukarShiftScreen() {
             <TouchableOpacity className="flex-row items-center border border-slate-200 rounded-xl px-3 py-3 bg-slate-50">
               <Ionicons name="person-outline" size={18} color="#64748b" />
               <TextInput
-                placeholder="Contoh: Budi Santoso / CAS-02"
+                placeholder="Contoh: Budi Santoso/123-26-JBR-SO"
                 placeholderTextColor="#cbd5e1"
                 className="flex-1 ml-2 text-slate-800 text-sm"
                 value={replacementEmployee}

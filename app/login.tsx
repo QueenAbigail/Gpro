@@ -172,7 +172,7 @@ export default function LoginScreen() {
 
           <View className="mb-4">
             <Text className="text-gray-600 text-xs font-bold mb-2 ml-1">
-              Alamat Email
+              ID Employee
             </Text>
             <View className="flex-row items-center bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
               <Ionicons

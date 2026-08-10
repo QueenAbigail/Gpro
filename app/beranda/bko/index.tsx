@@ -149,7 +149,7 @@ export default function AmbilBKOScreen() {
         <TouchableOpacity onPress={() => router.back()} className="flex-row items-center">
             <Ionicons name="arrow-back" size={24} color="#1e293b" />
             <View className="ml-4">
-                <Text className="text-xl font-bold text-slate-900">Ambil BKO</Text>
+                <Text className="text-xl font-bold text-slate-900">Ambil Backup</Text>
                 <Text className="text-slate-500 text-sm">Pilih personel yang digantikan</Text>
             </View>
         </TouchableOpacity>
@@ -162,7 +162,7 @@ export default function AmbilBKOScreen() {
           <Text className="text-white text-xs flex-1">Jadwal absen dan lokasi penugasan kamu akan disesuaikan dengan personel yang kamu gantikan.</Text>
         </View>
 
-        <Text className="font-bold text-slate-800 text-lg mb-4">Daftar Pengajuan (Site Ini)</Text>
+        <Text className="font-bold text-slate-800 text-lg mb-4">Daftar Pengajuan</Text>
 
         {isFetching ? <ActivityIndicator size="large" /> : (
           daftarBerhalangan.map((item) => (
@@ -210,7 +210,7 @@ export default function AmbilBKOScreen() {
             <ActivityIndicator color="white" />
           ) : (
             <Text className="text-white font-bold">
-              {selectedBKO ? "Konfirmasi Ambil BKO" : "Pilih Personel Dulu"}
+              {selectedBKO ? "Konfirmasi Ambil BKO" : "Pilih Personel Dahulu"}
             </Text>
           )}
         </TouchableOpacity>

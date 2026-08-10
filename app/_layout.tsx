@@ -2,9 +2,10 @@ import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native";
+import UpdateModal from "../components/UpdateModal";
 import "../global.css";
-import UpdateModal from "../components/UpdateModal"; // 💡 1. Tambah Import Modal
 import { handleDeviceVerification } from "../lib/device";
+import { registerForPushNotificationsAsync } from "../lib/notifications"; // 💡 1. Import helper notifikasi
 import { supabase } from "../lib/supabase";
 
 export default function RootLayout() {
@@ -28,6 +29,9 @@ export default function RootLayout() {
       
       if (verification.success) {
         setSession(currentSession);
+
+        // 🔔 2. TAMBAHAN DI SINI: Panggil pendaftaran token tiap kali user berhasil terverifikasi/login
+        registerForPushNotificationsAsync(currentSession.user.id);
       } else {
         // Kalau device nggak valid, paksa logout dan hapus session
         await supabase.auth.signOut();
@@ -80,7 +84,6 @@ export default function RootLayout() {
   }
 
   // 📱 LOGIKA RENDER STACK
-  // 💡 2. Dibungkus React Fragment (<> ... </>) biar bisa nampung Modal di luar Stack
   const renderContent = () => (
     <>
       <Stack>
@@ -98,8 +101,6 @@ export default function RootLayout() {
     </>
   );
 
-  // 💡 PERBAIKAN: Hanya pakai frame HP jika dibuka di WEB DESKTOP/LAPTOP (lebar layar > 500px).
-  // Jika dibuka di browser HP (width <= 500px) atau Native Android/iOS, langsung full screen!
   if (Platform.OS === 'web' && width > 500) {
     return (
       <View style={styles.webWrapper}>
@@ -110,7 +111,6 @@ export default function RootLayout() {
     );
   }
 
-  // Tampilan 100% Full Screen untuk Mobile Browser & Native App
   return renderContent();
 }
 

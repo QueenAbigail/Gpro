@@ -3,6 +3,31 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
+// 🛠️ HELPER: Penerjemah Pesan Error PostgreSQL / Supabase ke Bahasa User
+const getFriendlyErrorMessage = (error: any): string => {
+  if (!error) return 'Terjadi kesalahan sistem yang tidak diketahui.';
+
+  const rawMessage = (error.message || error.details || error.toString() || '').toLowerCase();
+
+  // 1. Error Foreign Key Constraint (User belum di-input ke tabel database/profiles)
+  if (rawMessage.includes('fkey') || rawMessage.includes('foreign key')) {
+    return 'Akun Anda belum terkonfigurasi di sistem HRIS. Silakan hubungi Admin/HRD.';
+  }
+
+  // 2. Data tidak ditemukan (Row Level / Not Found)
+  if (rawMessage.includes('pgrst116') || rawMessage.includes('not found')) {
+    return 'Data pengguna tidak ditemukan di sistem HRIS.';
+  }
+
+  // 3. Kendala Jaringan / Network
+  if (rawMessage.includes('fetch') || rawMessage.includes('network') || rawMessage.includes('connection')) {
+    return 'Gagal terhubung ke server. Periksa koneksi internet Anda.';
+  }
+
+  // Fallback jika ada error lain
+  return error.message || 'Gagal melakukan verifikasi perangkat akibat kendala sistem.';
+};
+
 // Helper untuk deteksi apakah web dibuka dari browser HP (Mobile Web) atau Laptop/Desktop
 const checkIsMobileWeb = (): boolean => {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
@@ -35,17 +60,17 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
         .maybeSingle();
 
       if (userError) {
-        console.error('Error checking web access:', userError);
+        console.error('🔴 [DEV DEBUG] Web check error:', userError);
         return {
           success: false,
-          message: 'Gagal memverifikasi izin akses web pada akun Anda.',
+          message: getFriendlyErrorMessage(userError),
         };
       }
 
       if (!userData) {
         return {
           success: false,
-          message: 'Data pengguna tidak ditemukan.',
+          message: 'Data pengguna tidak ditemukan di sistem HRIS.',
         };
       }
 
@@ -71,13 +96,11 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
 
       // 📱💻 3. Jika allowWebAppAccess = true: Cek jenis browser-nya
       if (isMobileWeb) {
-        // Lolos jika dari Mobile Web Browser
         return {
           success: true,
           message: 'Akses web mobile diizinkan.',
         };
       } else {
-        // Ditolak jika dibuka dari Desktop Web Browser
         return {
           success: false,
           message: 'Akses via Web Desktop hanya diperuntukkan bagi Admin.',
@@ -119,7 +142,7 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
       if (userBinding && userBinding.deviceId !== deviceId) {
         return {
           success: false,
-          message: 'Akun anda sudah terdaftar di perangkat lain. Silahkan hubungi admin HRIS untuk reset Device ID.',
+          message: 'Akun Anda sudah terdaftar di perangkat lain. Silakan hubungi admin HRIS untuk reset Device ID.',
         };
       }
 
@@ -160,10 +183,13 @@ export const handleDeviceVerification = async (userId: string): Promise<{ succes
     }
 
   } catch (error: any) {
-    console.error('Error device verification:', error);
+    // Log error asli untuk keperluan Developer Debugging
+    console.error('🔴 [DEV DEBUG] Error device verification raw:', error);
+
+    // Kirim pesan ramah yang sudah diterjemahkan ke UI modal user
     return { 
       success: false, 
-      message: error.message || 'Gagal melakukan verifikasi perangkat akibat kendala database.' 
+      message: getFriendlyErrorMessage(error)
     };
   }
 };
