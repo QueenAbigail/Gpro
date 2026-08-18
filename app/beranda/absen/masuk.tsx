@@ -366,13 +366,13 @@ export default function AbsenMasukScreen() {
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
       const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
 
-      // 💡 PERBAIKAN BUG HISTORY: Tambahkan locationId ke payload!
+      // 💡 PERBAIKAN BUG DATABASE: Pakai siteId agar sesuai dengan Foreign Key tabel Supabase
       const updatePayload = {
         actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
-        locationId: matchedLocation?.id || "MOBILE_LOC", 
+        locationId: matchedLocation?.id === "MOBILE_LOC" ? null : matchedLocation?.siteId, 
       };
 
       if (currentAttendanceId) {
