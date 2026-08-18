@@ -54,7 +54,7 @@ export default function AbsenPulangScreen() {
       const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setUserLocation({ lat: location.coords.latitude, lon: location.coords.longitude });
 
-      setLocationMessage("Memeriksa profil & jadwal...");
+      setLocationMessage("Memeriksa profil & sesi...");
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("Gagal mengambil sesi.");
 
@@ -64,34 +64,83 @@ export default function AbsenPulangScreen() {
         .eq("id", authData.user.id)
         .maybeSingle();
 
-      // Kunci role khusus SUPER_ADMIN
       if (userData?.role === "SUPER_ADMIN") {
         setIsSuperAdmin(true);
       }
 
-      const todayString = new Date().toISOString().split("T")[0];
+      // 1. CEK SESI ABSEN (Fix Shift Malam)
       const { data: attData } = await supabase
         .from("attendances")
-        .select("id, actualCheckIn, actualCheckOut, scheduledEnd") // ✅ Sesuai nama kolom asli lu
+        .select("id, date, actualCheckIn, actualCheckOut, scheduledEnd")
         .eq("userId", authData.user.id)
-        .eq("date", todayString)
+        .is("actualCheckOut", null)
+        .order("date", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (attData) {
         setCurrentAttendanceId(attData.id);
-        if (attData.actualCheckIn) setDbJamMasuk(attData.actualCheckIn);
-        if (attData.actualCheckOut) setHasCheckedOut(true);
         
+        if (attData.actualCheckIn) {
+          setDbJamMasuk(attData.actualCheckIn);
+        }
+
         if (attData.scheduledEnd) {
           const [h, m, s] = attData.scheduledEnd.split(":");
-          const tempDate = new Date();
+          const tempDate = new Date(attData.actualCheckIn || new Date()); 
           tempDate.setHours(parseInt(h), parseInt(m), parseInt(s || "0"), 0);
+          
+          if (tempDate < new Date(attData.actualCheckIn)) {
+            tempDate.setDate(tempDate.getDate() + 1);
+          }
+          
           setScheduleOutTime(tempDate);
+        }
+      } else {
+        setDbJamMasuk(null);
+      }
+
+      // 2. CEK RADIUS KHUSUS PULANG (1 KM / 1000 Meter)
+      if (userData?.allowMobileAttendance) {
+        setIsLocationValid(true);
+        setLocationMessage("Mode Mobile Aktif");
+      } else {
+        if (!userData?.siteId) throw new Error("Site penempatan belum diatur.");
+
+        const { data: locationData, error: locError } = await supabase
+          .from("attendance_locations")
+          .select("*")
+          .eq("siteId", userData.siteId);
+
+        if (locError || !locationData || locationData.length === 0) {
+          throw new Error("Titik absen untuk site ini belum diatur.");
+        }
+
+        let foundValidLocation = null;
+        for (const loc of locationData) {
+          const distance = getDistance(
+            location.coords.latitude,
+            location.coords.longitude,
+            loc.latitude,
+            loc.longitude,
+          );
+          
+          // 💡 PERBAIKAN: Radius database diabaikan, dipaksa jadi 1000 meter (1 KM)
+          if (distance <= 1000) {
+            foundValidLocation = loc;
+            break;
+          }
+        }
+
+        if (foundValidLocation) {
+          setIsLocationValid(true);
+          setLocationMessage(`Zona Valid: Radius ${foundValidLocation.name}`);
+        } else {
+          setIsLocationValid(false);
+          setLocationMessage("Kamu berada di luar radius kantor!");
         }
       }
 
-      setIsLocationValid(true);
-      setLocationMessage("Lokasi Valid");
     } catch (error: any) {
       setIsLocationValid(false);
       setLocationMessage(error.message || "Gagal memvalidasi lokasi.");

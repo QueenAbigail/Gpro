@@ -5,8 +5,9 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
+  Modal,
+  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -15,7 +16,6 @@ import {
 import { captureRef } from "react-native-view-shot";
 import { supabase } from "../../../lib/supabase";
 
-// Rumus Haversine buat hitung jarak radius geofence
 const getDistance = (
   lat1: number,
   lon1: number,
@@ -41,7 +41,19 @@ export default function AbsenMasukScreen() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
 
-  // State Validasi Lokasi (GPS)
+  // State Custom Modal
+  const [modalConfig, setModalConfig] = useState<{
+    visible: boolean;
+    type: "success" | "error";
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
+
   const [isLocationValid, setIsLocationValid] = useState(false);
   const [locationMessage, setLocationMessage] = useState(
     "Mendapatkan Koordinat...",
@@ -55,14 +67,10 @@ export default function AbsenMasukScreen() {
     null,
   );
 
-  // State Pencegahan Double Absen & Akses Admin
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false); // ✅ State untuk cek role Admin
-
-  // State Riwayat Kehadiran Asli
+  const [isAdmin, setIsAdmin] = useState(false);
   const [absenHistory, setAbsenHistory] = useState<any[]>([]);
 
-  // State Kamera & Foto
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
@@ -71,30 +79,26 @@ export default function AbsenMasukScreen() {
   const cameraRef = useRef<any>(null);
   const watermarkRef = useRef<View>(null);
 
-  // Fungsi Tarik Riwayat Absen dari Supabase
   const fetchHistory = async () => {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return;
 
-      // Ambil tanggal 7 hari ke belakang buat filter
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       const startDateString = sevenDaysAgo.toISOString().split("T")[0];
 
-      // Tarik data dari database
       const { data, error } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, locationId")
         .eq("userId", authData.user.id)
         .gte("date", startDateString)
-        .order("date", { ascending: false }); // Yg paling baru di atas
+        .order("date", { ascending: false });
 
       if (error) throw error;
 
       if (data) {
         const formattedHistory = data.map((item) => {
-          // Format Tanggal
           const d = new Date(item.date);
           const bulanIndo = [
             "Januari",
@@ -114,25 +118,15 @@ export default function AbsenMasukScreen() {
             bulanIndo[d.getMonth()]
           } ${d.getFullYear()}`;
 
-          // Format Jam & Nentuin Status
           let timeString = "-";
-          let statusText = "Belum Absen";
+          let statusText = "Belum Absen"; 
 
           if (item.actualCheckIn) {
             const checkIn = new Date(item.actualCheckIn);
             const h = checkIn.getHours().toString().padStart(2, "0");
             const m = checkIn.getMinutes().toString().padStart(2, "0");
             timeString = `${h}:${m}`;
-
-            // Asumsi sementara: absen sebelum jam 08:00 tepat waktu, lewat = terlambat
-            if (
-              checkIn.getHours() < 8 ||
-              (checkIn.getHours() === 8 && checkIn.getMinutes() === 0)
-            ) {
-              statusText = "Tepat Waktu";
-            } else {
-              statusText = "Terlambat";
-            }
+            statusText = "Tercatat";
           }
 
           const typeText =
@@ -148,7 +142,6 @@ export default function AbsenMasukScreen() {
             type: typeText,
           };
         });
-
         setAbsenHistory(formattedHistory);
       }
     } catch (error) {
@@ -156,7 +149,6 @@ export default function AbsenMasukScreen() {
     }
   };
 
-  // Fungsi Validasi Lokasi
   const validateLocation = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -168,33 +160,27 @@ export default function AbsenMasukScreen() {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const currentLat = location.coords.latitude;
-      const currentLon = location.coords.longitude;
-      setUserLocation({ lat: currentLat, lon: currentLon });
+      setUserLocation({ lat: location.coords.latitude, lon: location.coords.longitude });
 
       setLocationMessage("Memeriksa profil & jadwal...");
 
-      // 1. Ambil Sesi User & Cek Kolom allowMobileAttendance DAN role
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
 
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("siteId, allowMobileAttendance, role") // ✅ Tarik kolom role
+        .select("siteId, allowMobileAttendance, role")
         .eq("id", authData.user.id)
         .maybeSingle();
 
       if (userError) throw userError;
 
-      // ✅ Cek apakah user ini adalah Admin
-      if (userData?.role === "SUPER_ADMIN" || userData?.role === "SUPER_ADMIN") {
+      if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
         setIsAdmin(true);
       }
 
-      // 2. Ambil data attendance hari ini yang udah digenerate sama schedule
       const todayString = new Date().toISOString().split("T")[0];
-      const { data: attendanceData, error: attError } = await supabase
+      const { data: attendanceData } = await supabase
         .from("attendances")
         .select("id, actualCheckIn")
         .eq("userId", authData.user.id)
@@ -203,20 +189,15 @@ export default function AbsenMasukScreen() {
 
       if (attendanceData) {
         setCurrentAttendanceId(attendanceData.id);
-        // Cek apakah hari ini sudah ada jam absennya
-        if (attendanceData.actualCheckIn) {
-          setHasCheckedIn(true);
-        }
+        if (attendanceData.actualCheckIn) setHasCheckedIn(true);
       }
 
-      // 3. Eksekusi Logika Percabangan allowMobileAttendance
       if (userData?.allowMobileAttendance) {
-        // 🔥 JIKA DIIZINKAN MOBILE: Langsung lolos tanpa cek geofence!
         setIsLocationValid(true);
-        setMatchedLocation({ name: "Mode Mobile (Lokasi Bebas)" });
+        // 💡 Tambahin ID dummy untuk Mobile biar ga error
+        setMatchedLocation({ id: "MOBILE_LOC", name: "Mode Mobile (Lokasi Bebas)" });
         setLocationMessage("Mode Mobile Aktif");
       } else {
-        // JIKA TIDAK DIIZINKAN MOBILE (FIXED): Jalankan pengecekan radius geofence
         if (!userData?.siteId) throw new Error("Site penempatan belum diatur.");
 
         const { data: locationData, error: locError } = await supabase
@@ -229,13 +210,22 @@ export default function AbsenMasukScreen() {
         }
 
         let foundValidLocation = null;
+        let closestDistance = Infinity;
+        let closestRadius = 0;
+
         for (const loc of locationData) {
           const distance = getDistance(
-            currentLat,
-            currentLon,
+            location.coords.latitude,
+            location.coords.longitude,
             loc.latitude,
             loc.longitude,
           );
+
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestRadius = loc.radius;
+          }
+
           if (distance <= loc.radius) {
             foundValidLocation = loc;
             break;
@@ -248,7 +238,8 @@ export default function AbsenMasukScreen() {
           setLocationMessage(`Zona Valid: ${foundValidLocation.name}`);
         } else {
           setIsLocationValid(false);
-          setLocationMessage("Kamu berada di luar radius absen!");
+          const melenceng = Math.ceil(closestDistance - closestRadius);
+          setLocationMessage(`Di luar radius! (Melenceng ${melenceng}m)`);
         }
       }
     } catch (error: any) {
@@ -268,7 +259,6 @@ export default function AbsenMasukScreen() {
   const hours = timeToDisplay.getHours().toString().padStart(2, "0");
   const minutes = timeToDisplay.getMinutes().toString().padStart(2, "0");
   const seconds = timeToDisplay.getSeconds().toString().padStart(2, "0");
-
   const day = timeToDisplay.getDate().toString().padStart(2, "0");
   const month = (timeToDisplay.getMonth() + 1).toString().padStart(2, "0");
   const year = timeToDisplay.getFullYear();
@@ -276,16 +266,23 @@ export default function AbsenMasukScreen() {
 
   const handleBukaKamera = async () => {
     if (!isLocationValid) {
-      Alert.alert("Akses Ditolak", locationMessage);
+      setModalConfig({
+        visible: true,
+        type: "error",
+        title: "Akses Ditolak",
+        message: locationMessage,
+      });
       return;
     }
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert(
-          "Izin Ditolak",
-          "Aplikasi butuh izin kamera buat absen selfie!",
-        );
+        setModalConfig({
+          visible: true,
+          type: "error",
+          title: "Izin Ditolak",
+          message: "Aplikasi butuh izin kamera buat absen selfie!",
+        });
         return;
       }
     }
@@ -302,7 +299,12 @@ export default function AbsenMasukScreen() {
         setCapturedPhoto(photo.uri);
         setCapturedTime(new Date());
       } catch (error) {
-        Alert.alert("Error", "Gagal mengambil foto, silakan coba lagi.");
+        setModalConfig({
+          visible: true,
+          type: "error",
+          title: "Error Kamera",
+          message: "Gagal mengambil foto, silakan coba lagi.",
+        });
       }
     }
   };
@@ -312,68 +314,72 @@ export default function AbsenMasukScreen() {
     setCapturedTime(null);
   };
 
-  // 🔥 PROSES KIRIM DATA REAL KE SUPABASE STORAGE & DATABASE
   const submitAbsen = async () => {
     setIsLoading(true);
-
     try {
-      // 1. Ambil gambar ber-watermark dari ref
-      const watermarkedImageUri = await captureRef(watermarkRef, {
-        format: "jpg",
-        quality: 0.8,
-      });
+      let imageUriToUpload = "";
 
-      // 2. Ambil User ID buat penamaan folder di Storage
+      if (Platform.OS === "web") {
+        if (!capturedPhoto) throw new Error("Foto belum diambil.");
+        imageUriToUpload = capturedPhoto; 
+      } else {
+        const watermarkedImageUri = await captureRef(watermarkRef, {
+          format: "jpg",
+          quality: 0.8,
+        });
+        imageUriToUpload = watermarkedImageUri;
+      }
+
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("Sesi user hilang.");
 
-      // 3. Konversi file URI lokal menjadi FormData
       const localDateOnly = `${year}-${month}-${day}`;
-
-      // Nama file pakai tanggal
       const fileName = `${authData.user.id}/masuk_${localDateOnly}.jpg`;
 
-      const formData = new FormData();
-      formData.append("file", {
-        uri: watermarkedImageUri,
-        name: fileName,
-        type: "image/jpeg",
-      } as any);
+      let finalUploadData: any;
+      if (Platform.OS === "web") {
+        const res = await fetch(imageUriToUpload);
+        finalUploadData = await res.blob();
+      } else {
+        const formData = new FormData();
+        formData.append("file", {
+          uri: imageUriToUpload,
+          name: fileName,
+          type: "image/jpeg",
+        } as any);
+        finalUploadData = formData;
+      }
 
-      // 4. Upload FormData foto ke Supabase Storage (upsert: true otomatis nimpa file lama)
       const { data: storageData, error: storageError } = await supabase.storage
         .from("attendance-photos")
-        .upload(fileName, formData, {
-          contentType: "multipart/form-data",
+        .upload(fileName, finalUploadData, {
+          contentType: Platform.OS === "web" ? "image/jpeg" : "multipart/form-data",
           upsert: true,
         });
 
       if (storageError) throw storageError;
 
-      // 5. Ambil Public URL hasil upload foto
       const { data: publicUrlData } = supabase.storage
         .from("attendance-photos")
         .getPublicUrl(storageData.path);
 
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-
-      // 6. Siapkan data update jam masuk & kordinat mentah
       const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
 
+      // 💡 PERBAIKAN BUG HISTORY: Tambahkan locationId ke payload!
       const updatePayload = {
         actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
+        locationId: matchedLocation?.id || "MOBILE_LOC", 
       };
 
-      // 7. Update atau Insert data attendances
       if (currentAttendanceId) {
         const { error: updateError } = await supabase
           .from("attendances")
           .update(updatePayload)
           .eq("id", currentAttendanceId);
-
         if (updateError) throw updateError;
       } else {
         const { error: insertError } = await supabase
@@ -384,29 +390,83 @@ export default function AbsenMasukScreen() {
             date: localDateOnly,
             ...updatePayload,
           });
-
         if (insertError) throw insertError;
       }
 
-      // ✅ Berhasil absen, kunci tombolnya!
       setHasCheckedIn(true);
       setIsLoading(false);
-      Alert.alert("Absen Berhasil", "Kehadiran masuk Anda berhasil tercatat!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      
+      setModalConfig({
+        visible: true,
+        type: "success",
+        title: "Absen Berhasil",
+        message: "Kehadiran masuk Anda berhasil tercatat!",
+      });
+
     } catch (error: any) {
       setIsLoading(false);
-      Alert.alert(
-        "Gagal Absen",
-        error.message || "Terjadi kesalahan pada server.",
-      );
+      setModalConfig({
+        visible: true,
+        type: "error",
+        title: "Gagal Absen",
+        message: error.message || "Terjadi kesalahan pada server.",
+      });
+    }
+  };
+
+  const handleModalClose = () => {
+    const wasSuccess = modalConfig.type === "success";
+    setModalConfig((prev) => ({ ...prev, visible: false }));
+
+    if (wasSuccess) {
+      setIsCameraOpen(false);
+      router.back();
     }
   };
 
   return (
     <View className="flex-1 bg-sky-50">
+      <Modal
+        transparent
+        visible={modalConfig.visible}
+        animationType="fade"
+        onRequestClose={handleModalClose}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-6 z-50">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
+            <View 
+              className={`w-14 h-14 rounded-full items-center justify-center mb-4 ${
+                modalConfig.type === "success" ? "bg-emerald-50" : "bg-red-50"
+              }`}
+            >
+              <Ionicons 
+                name={modalConfig.type === "success" ? "checkmark-circle" : "close-circle"} 
+                size={32} 
+                color={modalConfig.type === "success" ? "#10b981" : "#ef4444"} 
+              />
+            </View>
+            <Text className="text-slate-800 font-bold text-lg text-center mb-2">
+              {modalConfig.title}
+            </Text>
+            <Text className="text-slate-600 text-sm text-center mb-6 leading-relaxed">
+              {modalConfig.message}
+            </Text>
+            <TouchableOpacity
+              onPress={handleModalClose}
+              className={`w-full py-3.5 rounded-2xl items-center shadow-sm ${
+                modalConfig.type === "success" 
+                  ? "bg-emerald-600 active:bg-emerald-700" 
+                  : "bg-blue-600 active:bg-blue-700"
+              }`}
+            >
+              <Text className="text-white font-bold text-sm">OK Mengerti</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {isCameraOpen ? (
-        <View className="flex-1 bg-black absolute w-full h-full z-50">
+        <View className="flex-1 bg-black absolute w-full h-full z-40">
           {capturedPhoto ? (
             <>
               <View
@@ -563,7 +623,6 @@ export default function AbsenMasukScreen() {
               )}
             </View>
 
-            {/* ✅ TOMBOL UTAMA CATAT ABSEN (Dengan Logika hasCheckedIn) */}
             <TouchableOpacity
               onPress={handleBukaKamera}
               disabled={!isLocationValid || hasCheckedIn}
@@ -594,7 +653,6 @@ export default function AbsenMasukScreen() {
               </View>
             </TouchableOpacity>
 
-            {/* ✅ TOMBOL DEBUG KHUSUS DEVELOPMENT (Cuma Muncul Kalau Udah Absen & ADMIN) */}
             {hasCheckedIn && isAdmin && (
               <TouchableOpacity
                 onPress={() => setHasCheckedIn(false)}
@@ -620,20 +678,20 @@ export default function AbsenMasukScreen() {
               >
                 <View
                   className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
-                    item.status === "Tepat Waktu"
+                    item.status === "Tercatat"
                       ? "bg-emerald-50"
-                      : "bg-rose-50"
+                      : "bg-gray-100" 
                   }`}
                 >
                   <Ionicons
                     name={
-                      item.status === "Tepat Waktu"
+                      item.status === "Tercatat"
                         ? "checkmark-circle"
-                        : "warning"
+                        : "time-outline"
                     }
                     size={24}
                     color={
-                      item.status === "Tepat Waktu" ? "#10b981" : "#f43f5e"
+                      item.status === "Tercatat" ? "#10b981" : "#9ca3af"
                     }
                   />
                 </View>
@@ -650,16 +708,16 @@ export default function AbsenMasukScreen() {
                 </View>
                 <View
                   className={`px-3 py-1.5 rounded-full ${
-                    item.status === "Tepat Waktu"
+                    item.status === "Tercatat"
                       ? "bg-emerald-100"
-                      : "bg-rose-100"
+                      : "bg-gray-200"
                   }`}
                 >
                   <Text
                     className={`text-[10px] font-bold uppercase ${
-                      item.status === "Tepat Waktu"
+                      item.status === "Tercatat"
                         ? "text-emerald-700"
-                        : "text-rose-700"
+                        : "text-gray-600"
                     }`}
                   >
                     {item.status}
