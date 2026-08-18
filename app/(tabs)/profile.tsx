@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
@@ -234,7 +233,7 @@ export default function ProfileScreen() {
       {/* Teks Versi Aplikasi */}
       <View className="items-center pt-2 pb-6">
         <Text className="text-slate-400 text-xs font-semibold">
-          GlobalPro Mobile v{Constants.expoConfig?.version ?? "1.0.0"}
+          GlobalPro Mobile v1.0.4
         </Text>
       </View>
 
