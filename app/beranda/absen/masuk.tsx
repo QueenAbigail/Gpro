@@ -86,7 +86,11 @@ export default function AbsenMasukScreen() {
 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const startDateString = sevenDaysAgo.toISOString().split("T")[0];
+      
+      // 💡 PERBAIKAN TIMEZONE: Bikin tanggal lokal murni dari HP User, jangan pake ISO (UTC)
+      const startDateString = `${sevenDaysAgo.getFullYear()}-${String(
+        sevenDaysAgo.getMonth() + 1
+      ).padStart(2, "0")}-${String(sevenDaysAgo.getDate()).padStart(2, "0")}`;
 
       const { data, error } = await supabase
         .from("attendances")
@@ -179,7 +183,12 @@ export default function AbsenMasukScreen() {
         setIsAdmin(true);
       }
 
-      const todayString = new Date().toISOString().split("T")[0];
+      // 💡 PERBAIKAN TIMEZONE: Pakai jam lokal HP User untuk nentuin "Hari Ini"
+      const now = new Date();
+      const todayString = `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
       const { data: attendanceData } = await supabase
         .from("attendances")
         .select("id, actualCheckIn")
@@ -366,7 +375,7 @@ export default function AbsenMasukScreen() {
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
       const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
 
-      // 💡 PERBAIKAN BUG DATABASE: Pakai siteId agar sesuai dengan Foreign Key tabel Supabase
+      // 💡 Tetep kirim Site ID ngikutin request Foreign Key database lu yang ada sekarang
       const updatePayload = {
         actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
