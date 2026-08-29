@@ -12,8 +12,13 @@ import {
   View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import { handleDeviceVerification } from "../lib/device";
+import {
+  handleDeviceVerification
+} from "../lib/device";
 import { supabase } from "../lib/supabase";
+
+// 💡 IMPORT FUNGSI TRACKER DARI FILE TERPISAH
+import { sendActivityLog } from "../lib/tracker";
 
 const CACHE_KEY_APP_SETTINGS = "@app_system_settings";
 
@@ -29,7 +34,7 @@ export default function LoginScreen() {
   const [appName, setAppName] = useState("Pro Maxima Rajawali");
   const [appLogo, setAppLogo] = useState<string | null>(null);
   const [appDescription, setAppDescription] = useState(
-    "Sistem Informasi Manajemen Kehadiran"
+    "Sistem Informasi Manajemen Kehadiran",
   );
 
   const [isErrorModalVisible, setIsErrorModalVisible] = useState(false);
@@ -45,12 +50,12 @@ export default function LoginScreen() {
         setErrorMessage(
           params?.message
             ? String(params.message)
-            : "Akun terdeteksi di perangkat lain."
+            : "Akun terdeteksi di perangkat lain.",
         );
         setIsErrorModalVisible(true);
         router.setParams({ error: undefined, message: undefined } as any);
       }
-    }, [params?.error, params?.message])
+    }, [params?.error, params?.message]),
   );
 
   const initSystemSettings = async () => {
@@ -74,7 +79,10 @@ export default function LoginScreen() {
         if (data.appDescription) setAppDescription(data.appDescription);
         if (data.logoUrl) setAppLogo(data.logoUrl);
 
-        await AsyncStorage.setItem(CACHE_KEY_APP_SETTINGS, JSON.stringify(data));
+        await AsyncStorage.setItem(
+          CACHE_KEY_APP_SETTINGS,
+          JSON.stringify(data),
+        );
       }
     } catch (error) {
       console.log("Background sync settings info:", error);
@@ -92,35 +100,54 @@ export default function LoginScreen() {
 
     const formattedEmail = email.includes("@") ? email : `${email}@hris.com`;
 
+    // Tembak login ke Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email: formattedEmail,
       password: password,
     });
 
-    if (error) {
+    // 🛑 SKENARIO 1: ERROR ATAU SESSION GAGAL DIBUAT
+    if (error || !data.session) {
       setLoading(false);
       setErrorMessage("ID atau kata sandi tidak sesuai.");
+      setIsErrorModalVisible(true);
+      // Panggil fungsi log (tanpa koordinat GPS karena belum dapet)
+      await sendActivityLog("FAILED_INVALID_CREDENTIALS", null, formattedEmail);
+      return;
+    }
+
+    // Ambil token LANGSUNG dari memori hasil login
+    const accessToken = data.session.access_token;
+    const actualUserEmail = data.user.email || formattedEmail;
+
+    // ✅ SKENARIO 2: LANJUT CEK DEVICE
+    const verification = await handleDeviceVerification(data.user.id);
+
+    // 🛑 SKENARIO 3: DEVICE BENTROK
+    if (!verification.success) {
+      // Kirim log dengan token
+      await sendActivityLog(
+        "FAILED_DEVICE_LIMIT",
+        accessToken,
+        actualUserEmail,
+      );
+
+      // Tendang user
+      await supabase.auth.signOut();
+      setLoading(false);
+      setErrorMessage(verification.message || "Perangkat tidak diizinkan.");
       setIsErrorModalVisible(true);
       return;
     }
 
-    if (data?.user) {
-      const verification = await handleDeviceVerification(data.user.id);
+    // 🎉 SKENARIO 4: LOGIN SUKSES
+    await sendActivityLog("SUCCESS", accessToken, actualUserEmail);
 
-      if (!verification.success) {
-        await supabase.auth.signOut();
-        setLoading(false);
-        setErrorMessage(verification.message || "Perangkat tidak diizinkan.");
-        setIsErrorModalVisible(true);
-        return;
-      }
-
-      setLoading(false);
-      router.replace({
-        pathname: "/(tabs)",
-        params: { showToast: "success" },
-      } as any);
-    }
+    setLoading(false);
+    router.replace({
+      pathname: "/(tabs)",
+      params: { showToast: "success" },
+    } as any);
   };
 
   return (
@@ -139,8 +166,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="items-center mb-10">
-          {/* 💡 FIX WEB: Tambah overflow-hidden & inline style dimensi pasti */}
-          <View 
+          <View
             className="w-28 h-28 bg-white rounded-3xl items-center justify-center mb-4 shadow-sm p-3 border border-sky-100 overflow-hidden"
             style={{ width: 112, height: 112 }}
           >
@@ -151,7 +177,7 @@ export default function LoginScreen() {
                   : require("../assets/images/login_icon.png")
               }
               className="w-full h-full"
-              style={{ width: "100%", height: "100%" }} // 👈 FIX KUNCI: Kunci ukuran pasti di style
+              style={{ width: "100%", height: "100%" }}
               resizeMode="contain"
             />
           </View>
@@ -213,9 +239,7 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
               />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-              >
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons
                   name={showPassword ? "eye-off-outline" : "eye-outline"}
                   size={20}

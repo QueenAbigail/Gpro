@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +16,7 @@ import {
 } from "react-native";
 import { captureRef } from "react-native-view-shot";
 import { supabase } from "../../../lib/supabase";
+import { sendActivityLog } from "../../../lib/tracker";
 
 const getDistance = (
   lat1: number,
@@ -37,11 +39,9 @@ const getDistance = (
 export default function AbsenMasukScreen() {
   const router = useRouter();
 
-  // State Waktu & Loading
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
 
-  // State Custom Modal
   const [modalConfig, setModalConfig] = useState<{
     visible: boolean;
     type: "success" | "error";
@@ -79,6 +79,14 @@ export default function AbsenMasukScreen() {
   const cameraRef = useRef<any>(null);
   const watermarkRef = useRef<View>(null);
 
+  const getAuthInfo = async () => {
+    const { data } = await supabase.auth.getSession();
+    return {
+      token: data.session?.access_token || null,
+      email: data.session?.user?.email || "unknown@hris.com",
+    };
+  };
+
   const fetchHistory = async () => {
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -86,10 +94,9 @@ export default function AbsenMasukScreen() {
 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      // 💡 PERBAIKAN TIMEZONE: Bikin tanggal lokal murni dari HP User, jangan pake ISO (UTC)
+
       const startDateString = `${sevenDaysAgo.getFullYear()}-${String(
-        sevenDaysAgo.getMonth() + 1
+        sevenDaysAgo.getMonth() + 1,
       ).padStart(2, "0")}-${String(sevenDaysAgo.getDate()).padStart(2, "0")}`;
 
       const { data, error } = await supabase
@@ -118,12 +125,10 @@ export default function AbsenMasukScreen() {
             "November",
             "Desember",
           ];
-          const dateString = `${d.getDate()} ${
-            bulanIndo[d.getMonth()]
-          } ${d.getFullYear()}`;
+          const dateString = `${d.getDate()} ${bulanIndo[d.getMonth()]} ${d.getFullYear()}`;
 
           let timeString = "-";
-          let statusText = "Belum Absen"; 
+          let statusText = "Belum Absen";
 
           if (item.actualCheckIn) {
             const checkIn = new Date(item.actualCheckIn);
@@ -155,20 +160,66 @@ export default function AbsenMasukScreen() {
 
   const validateLocation = async () => {
     try {
+      const authInfo = await getAuthInfo();
+
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted")
+      if (status !== "granted") {
+        await sendActivityLog(
+          "FAILED_GPS_DENIED",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_IN",
+          },
+        );
         throw new Error("Izin akses lokasi (GPS) ditolak.");
+      }
 
       setLocationMessage("Mengambil data GPS kamu...");
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+      let location;
+      try {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+      } catch (gpsError) {
+        await sendActivityLog(
+          "FAILED_GPS_TIMEOUT",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_IN",
+          },
+        );
+        throw new Error("Gagal mengunci sinyal GPS. Pastikan GPS menyala.");
+      }
+
+      setUserLocation({
+        lat: location.coords.latitude,
+        lon: location.coords.longitude,
       });
-      setUserLocation({ lat: location.coords.latitude, lon: location.coords.longitude });
+
+      if (location.mocked) {
+        await sendActivityLog(
+          "FAILED_FAKE_GPS",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_IN",
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            isMockLocation: true,
+          },
+        );
+        throw new Error(
+          "Terdeteksi aplikasi Lokasi Palsu (Fake GPS). Absen dikunci.",
+        );
+      }
 
       setLocationMessage("Memeriksa profil & jadwal...");
 
-      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
 
       const { data: userData, error: userError } = await supabase
@@ -183,10 +234,9 @@ export default function AbsenMasukScreen() {
         setIsAdmin(true);
       }
 
-      // 💡 PERBAIKAN TIMEZONE: Pakai jam lokal HP User untuk nentuin "Hari Ini"
       const now = new Date();
       const todayString = `${now.getFullYear()}-${String(
-        now.getMonth() + 1
+        now.getMonth() + 1,
       ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
       const { data: attendanceData } = await supabase
@@ -203,8 +253,10 @@ export default function AbsenMasukScreen() {
 
       if (userData?.allowMobileAttendance) {
         setIsLocationValid(true);
-        // 💡 Tambahin ID dummy untuk Mobile biar ga error
-        setMatchedLocation({ id: "MOBILE_LOC", name: "Mode Mobile (Lokasi Bebas)" });
+        setMatchedLocation({
+          id: "MOBILE_LOC",
+          name: "Mode Mobile (Lokasi Bebas)",
+        });
         setLocationMessage("Mode Mobile Aktif");
       } else {
         if (!userData?.siteId) throw new Error("Site penempatan belum diatur.");
@@ -248,6 +300,20 @@ export default function AbsenMasukScreen() {
         } else {
           setIsLocationValid(false);
           const melenceng = Math.ceil(closestDistance - closestRadius);
+
+          await sendActivityLog(
+            "FAILED_OUT_OF_RADIUS",
+            authInfo.token,
+            authInfo.email,
+            {
+              action: "ATTENDANCE_IN",
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              isMockLocation: false,
+              distance: closestDistance,
+            },
+          );
+
           setLocationMessage(`Di luar radius! (Melenceng ${melenceng}m)`);
         }
       }
@@ -286,6 +352,16 @@ export default function AbsenMasukScreen() {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
+        const authInfo = await getAuthInfo();
+        await sendActivityLog(
+          "FAILED_CAMERA_DENIED",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_IN",
+          },
+        );
+
         setModalConfig({
           visible: true,
           type: "error",
@@ -330,20 +406,26 @@ export default function AbsenMasukScreen() {
 
       if (Platform.OS === "web") {
         if (!capturedPhoto) throw new Error("Foto belum diambil.");
-        imageUriToUpload = capturedPhoto; 
+        imageUriToUpload = capturedPhoto;
       } else {
         const watermarkedImageUri = await captureRef(watermarkRef, {
           format: "jpg",
           quality: 0.8,
         });
-        imageUriToUpload = watermarkedImageUri;
+
+        const manipResult = await ImageManipulator.manipulateAsync(
+          watermarkedImageUri,
+          [],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.WEBP },
+        );
+        imageUriToUpload = manipResult.uri;
       }
 
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("Sesi user hilang.");
 
       const localDateOnly = `${year}-${month}-${day}`;
-      const fileName = `${authData.user.id}/masuk_${localDateOnly}.jpg`;
+      const fileName = `${authData.user.id}/masuk_${localDateOnly}.webp`;
 
       let finalUploadData: any;
       if (Platform.OS === "web") {
@@ -354,7 +436,7 @@ export default function AbsenMasukScreen() {
         formData.append("file", {
           uri: imageUriToUpload,
           name: fileName,
-          type: "image/jpeg",
+          type: "image/webp",
         } as any);
         finalUploadData = formData;
       }
@@ -362,7 +444,8 @@ export default function AbsenMasukScreen() {
       const { data: storageData, error: storageError } = await supabase.storage
         .from("attendance-photos")
         .upload(fileName, finalUploadData, {
-          contentType: Platform.OS === "web" ? "image/jpeg" : "multipart/form-data",
+          contentType:
+            Platform.OS === "web" ? "image/webp" : "multipart/form-data",
           upsert: true,
         });
 
@@ -375,13 +458,13 @@ export default function AbsenMasukScreen() {
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
       const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
 
-      // 💡 Tetep kirim Site ID ngikutin request Foreign Key database lu yang ada sekarang
       const updatePayload = {
         actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
-        locationId: matchedLocation?.id === "MOBILE_LOC" ? null : matchedLocation?.siteId, 
+        locationId:
+          matchedLocation?.id === "MOBILE_LOC" ? null : matchedLocation?.siteId,
       };
 
       if (currentAttendanceId) {
@@ -402,16 +485,25 @@ export default function AbsenMasukScreen() {
         if (insertError) throw insertError;
       }
 
+      const authInfo = await getAuthInfo();
+      await sendActivityLog("SUCCESS", authInfo.token, authInfo.email, {
+        action: "ATTENDANCE_IN",
+        latitude: userLocation?.lat,
+        longitude: userLocation?.lon,
+        isMockLocation: false,
+      });
+
       setHasCheckedIn(true);
       setIsLoading(false);
-      
+
+      fetchHistory();
+
       setModalConfig({
         visible: true,
         type: "success",
         title: "Absen Berhasil",
         message: "Kehadiran masuk Anda berhasil tercatat!",
       });
-
     } catch (error: any) {
       setIsLoading(false);
       setModalConfig({
@@ -429,7 +521,6 @@ export default function AbsenMasukScreen() {
 
     if (wasSuccess) {
       setIsCameraOpen(false);
-      router.back();
     }
   };
 
@@ -443,15 +534,19 @@ export default function AbsenMasukScreen() {
       >
         <View className="flex-1 bg-black/50 justify-center items-center px-6 z-50">
           <View className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl items-center">
-            <View 
+            <View
               className={`w-14 h-14 rounded-full items-center justify-center mb-4 ${
                 modalConfig.type === "success" ? "bg-emerald-50" : "bg-red-50"
               }`}
             >
-              <Ionicons 
-                name={modalConfig.type === "success" ? "checkmark-circle" : "close-circle"} 
-                size={32} 
-                color={modalConfig.type === "success" ? "#10b981" : "#ef4444"} 
+              <Ionicons
+                name={
+                  modalConfig.type === "success"
+                    ? "checkmark-circle"
+                    : "close-circle"
+                }
+                size={32}
+                color={modalConfig.type === "success" ? "#10b981" : "#ef4444"}
               />
             </View>
             <Text className="text-slate-800 font-bold text-lg text-center mb-2">
@@ -463,8 +558,8 @@ export default function AbsenMasukScreen() {
             <TouchableOpacity
               onPress={handleModalClose}
               className={`w-full py-3.5 rounded-2xl items-center shadow-sm ${
-                modalConfig.type === "success" 
-                  ? "bg-emerald-600 active:bg-emerald-700" 
+                modalConfig.type === "success"
+                  ? "bg-emerald-600 active:bg-emerald-700"
                   : "bg-blue-600 active:bg-blue-700"
               }`}
             >
@@ -474,8 +569,174 @@ export default function AbsenMasukScreen() {
         </View>
       </Modal>
 
-      {isCameraOpen ? (
-        <View className="flex-1 bg-black absolute w-full h-full z-40">
+      <View className="flex-1">
+        <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 bg-sky-50 rounded-full items-center justify-center mr-4 active:bg-sky-100"
+          >
+            <Ionicons name="arrow-back" size={20} color="#1e293b" />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-xl font-bold text-gray-900">Absen Masuk</Text>
+            <Text className="text-gray-500 text-xs mt-0.5">
+              Validasi GPS & Catat Kehadiran
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView
+          className="flex-1 px-6 pt-6"
+          contentContainerStyle={{ paddingBottom: 100 }}
+        >
+          <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-8 items-center">
+            <Text className="text-gray-500 font-medium mb-2">
+              Waktu Saat Ini
+            </Text>
+            <View className="flex-row items-end mb-4">
+              <Text className="text-5xl font-extrabold text-gray-900 tracking-tight">
+                {hours}:{minutes}
+              </Text>
+              <Text className="text-2xl font-bold text-gray-400 ml-1 mb-1">
+                :{seconds}
+              </Text>
+            </View>
+
+            <View
+              className={`flex-row items-center px-4 py-2 rounded-full ${
+                isLocationValid ? "bg-emerald-50" : "bg-amber-50"
+              }`}
+            >
+              {isLocationValid ? (
+                <>
+                  <Ionicons name="location" size={16} color="#10b981" />
+                  <Text className="text-emerald-700 text-xs font-bold ml-2">
+                    {locationMessage}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  {userLocation ? (
+                    <Ionicons name="warning" size={16} color="#f59e0b" />
+                  ) : (
+                    <ActivityIndicator size="small" color="#f59e0b" />
+                  )}
+                  <Text className="text-amber-700 text-xs font-bold ml-2">
+                    {locationMessage}
+                  </Text>
+                </>
+              )}
+            </View>
+
+            {!isLocationValid && userLocation && (
+              <TouchableOpacity onPress={validateLocation} className="mt-3">
+                <Text className="text-blue-500 text-xs font-semibold underline">
+                  Coba Cek GPS Lagi
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity
+            onPress={handleBukaKamera}
+            disabled={!isLocationValid || hasCheckedIn}
+            className={`w-full py-5 rounded-3xl items-center flex-row justify-center ${
+              hasCheckedIn ? "mb-3" : "mb-10"
+            } shadow-lg ${
+              !isLocationValid || hasCheckedIn
+                ? "bg-slate-300"
+                : "bg-blue-600 active:bg-blue-700"
+            }`}
+          >
+            <View className="w-10 h-10 bg-white/20 rounded-full items-center justify-center mr-3">
+              <Ionicons
+                name={hasCheckedIn ? "checkmark-done" : "finger-print"}
+                size={24}
+                color="white"
+              />
+            </View>
+            <View className="items-start">
+              <Text className="text-white font-extrabold text-lg tracking-wide">
+                {hasCheckedIn ? "SUDAH ABSEN" : "CATAT ABSEN"}
+              </Text>
+              <Text className="text-blue-100 text-xs">
+                {hasCheckedIn
+                  ? "Kehadiran kamu hari ini sudah tercatat"
+                  : "Tanpa Scan QR Code"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {hasCheckedIn && isAdmin && (
+            <TouchableOpacity
+              onPress={() => setHasCheckedIn(false)}
+              className="w-full py-3 mb-10 rounded-2xl items-center bg-purple-50 border border-purple-200 active:bg-purple-100"
+            >
+              <Text className="text-purple-600 font-bold text-xs">
+                🛠️ DEBUG: Reset Akses Absen
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <View className="mb-4 flex-row justify-between items-center">
+            <Text className="text-gray-900 font-bold text-lg">
+              Riwayat Kehadiran
+            </Text>
+            <Text className="text-gray-400 text-xs">7 Hari Terakhir</Text>
+          </View>
+
+          {absenHistory.map((item) => (
+            <View
+              key={item.id}
+              className="bg-white p-4 rounded-2xl mb-3 border border-gray-100 shadow-sm flex-row items-center"
+            >
+              <View
+                className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
+                  item.status === "Tercatat" ? "bg-emerald-50" : "bg-gray-100"
+                }`}
+              >
+                <Ionicons
+                  name={
+                    item.status === "Tercatat"
+                      ? "checkmark-circle"
+                      : "time-outline"
+                  }
+                  size={24}
+                  color={item.status === "Tercatat" ? "#10b981" : "#9ca3af"}
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-gray-900 font-bold mb-0.5">
+                  {item.date}
+                </Text>
+                {/* 💡 PERBAIKAN: Hapus kelas flex-row yang dilarang di komponen Text */}
+                <Text className="text-gray-500 text-xs mt-0.5">
+                  Jam {item.time} •{" "}
+                  <Text className="text-sky-600 font-medium">{item.type}</Text>
+                </Text>
+              </View>
+              <View
+                className={`px-3 py-1.5 rounded-full ${
+                  item.status === "Tercatat" ? "bg-emerald-100" : "bg-gray-200"
+                }`}
+              >
+                <Text
+                  className={`text-[10px] font-bold uppercase ${
+                    item.status === "Tercatat"
+                      ? "text-emerald-700"
+                      : "text-gray-600"
+                  }`}
+                >
+                  {item.status}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+
+      {isCameraOpen && (
+        <View className="absolute top-0 left-0 w-full h-full bg-black z-40">
           {capturedPhoto ? (
             <>
               <View
@@ -560,181 +821,6 @@ export default function AbsenMasukScreen() {
               </View>
             </CameraView>
           )}
-        </View>
-      ) : (
-        <View className="flex-1">
-          <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
-            <TouchableOpacity
-              onPress={() => router.back()}
-              className="w-10 h-10 bg-sky-50 rounded-full items-center justify-center mr-4 active:bg-sky-100"
-            >
-              <Ionicons name="arrow-back" size={20} color="#1e293b" />
-            </TouchableOpacity>
-            <View>
-              <Text className="text-xl font-bold text-gray-900">
-                Absen Masuk
-              </Text>
-              <Text className="text-gray-500 text-xs mt-0.5">
-                Validasi GPS & Catat Kehadiran
-              </Text>
-            </View>
-          </View>
-
-          <ScrollView
-            className="flex-1 px-6 pt-6"
-            contentContainerStyle={{ paddingBottom: 100 }}
-          >
-            <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-8 items-center">
-              <Text className="text-gray-500 font-medium mb-2">
-                Waktu Saat Ini
-              </Text>
-              <View className="flex-row items-end mb-4">
-                <Text className="text-5xl font-extrabold text-gray-900 tracking-tight">
-                  {hours}:{minutes}
-                </Text>
-                <Text className="text-2xl font-bold text-gray-400 ml-1 mb-1">
-                  :{seconds}
-                </Text>
-              </View>
-
-              <View
-                className={`flex-row items-center px-4 py-2 rounded-full ${
-                  isLocationValid ? "bg-emerald-50" : "bg-amber-50"
-                }`}
-              >
-                {isLocationValid ? (
-                  <>
-                    <Ionicons name="location" size={16} color="#10b981" />
-                    <Text className="text-emerald-700 text-xs font-bold ml-2">
-                      {locationMessage}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    {userLocation ? (
-                      <Ionicons name="warning" size={16} color="#f59e0b" />
-                    ) : (
-                      <ActivityIndicator size="small" color="#f59e0b" />
-                    )}
-                    <Text className="text-amber-700 text-xs font-bold ml-2">
-                      {locationMessage}
-                    </Text>
-                  </>
-                )}
-              </View>
-
-              {!isLocationValid && userLocation && (
-                <TouchableOpacity onPress={validateLocation} className="mt-3">
-                  <Text className="text-blue-500 text-xs font-semibold underline">
-                    Coba Cek GPS Lagi
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <TouchableOpacity
-              onPress={handleBukaKamera}
-              disabled={!isLocationValid || hasCheckedIn}
-              className={`w-full py-5 rounded-3xl items-center flex-row justify-center ${
-                hasCheckedIn ? "mb-3" : "mb-10"
-              } shadow-lg ${
-                !isLocationValid || hasCheckedIn
-                  ? "bg-slate-300"
-                  : "bg-blue-600 active:bg-blue-700"
-              }`}
-            >
-              <View className="w-10 h-10 bg-white/20 rounded-full items-center justify-center mr-3">
-                <Ionicons
-                  name={hasCheckedIn ? "checkmark-done" : "finger-print"}
-                  size={24}
-                  color="white"
-                />
-              </View>
-              <View className="items-start">
-                <Text className="text-white font-extrabold text-lg tracking-wide">
-                  {hasCheckedIn ? "SUDAH ABSEN" : "CATAT ABSEN"}
-                </Text>
-                <Text className="text-blue-100 text-xs">
-                  {hasCheckedIn
-                    ? "Kehadiran kamu hari ini sudah tercatat"
-                    : "Tanpa Scan QR Code"}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {hasCheckedIn && isAdmin && (
-              <TouchableOpacity
-                onPress={() => setHasCheckedIn(false)}
-                className="w-full py-3 mb-10 rounded-2xl items-center bg-purple-50 border border-purple-200 active:bg-purple-100"
-              >
-                <Text className="text-purple-600 font-bold text-xs">
-                  🛠️ DEBUG: Reset Akses Absen
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            <View className="mb-4 flex-row justify-between items-center">
-              <Text className="text-gray-900 font-bold text-lg">
-                Riwayat Kehadiran
-              </Text>
-              <Text className="text-gray-400 text-xs">7 Hari Terakhir</Text>
-            </View>
-
-            {absenHistory.map((item) => (
-              <View
-                key={item.id}
-                className="bg-white p-4 rounded-2xl mb-3 border border-gray-100 shadow-sm flex-row items-center"
-              >
-                <View
-                  className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
-                    item.status === "Tercatat"
-                      ? "bg-emerald-50"
-                      : "bg-gray-100" 
-                  }`}
-                >
-                  <Ionicons
-                    name={
-                      item.status === "Tercatat"
-                        ? "checkmark-circle"
-                        : "time-outline"
-                    }
-                    size={24}
-                    color={
-                      item.status === "Tercatat" ? "#10b981" : "#9ca3af"
-                    }
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-gray-900 font-bold mb-0.5">
-                    {item.date}
-                  </Text>
-                  <Text className="text-gray-500 text-xs flex-row items-center">
-                    Jam {item.time} •{" "}
-                    <Text className="text-sky-600 font-medium">
-                      {item.type}
-                    </Text>
-                  </Text>
-                </View>
-                <View
-                  className={`px-3 py-1.5 rounded-full ${
-                    item.status === "Tercatat"
-                      ? "bg-emerald-100"
-                      : "bg-gray-200"
-                  }`}
-                >
-                  <Text
-                    className={`text-[10px] font-bold uppercase ${
-                      item.status === "Tercatat"
-                        ? "text-emerald-700"
-                        : "text-gray-600"
-                    }`}
-                  >
-                    {item.status}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
         </View>
       )}
     </View>

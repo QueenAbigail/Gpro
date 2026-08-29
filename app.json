@@ -2,7 +2,7 @@
   "expo": {
     "name": "GlobalPro Mobile",
     "slug": "Globalpro_Mobile",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "globalpromobile",
@@ -46,7 +46,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

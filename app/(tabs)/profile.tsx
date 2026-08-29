@@ -29,7 +29,8 @@ export default function ProfileScreen() {
         setLoading(true);
       }
 
-      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
 
       if (authError || !authData?.user) {
         setLoading(false);
@@ -233,7 +234,7 @@ export default function ProfileScreen() {
       {/* Teks Versi Aplikasi */}
       <View className="items-center pt-2 pb-6">
         <Text className="text-slate-400 text-xs font-semibold">
-          GlobalPro Mobile v1.0.4
+          GlobalPro Mobile v1.1.0
         </Text>
       </View>
 
@@ -254,7 +255,8 @@ export default function ProfileScreen() {
               Konfirmasi Keluar
             </Text>
             <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed">
-              Apakah Anda yakin ingin keluar dari aplikasi? Jangan lupa pastikan semua tugas patroli Anda hari ini sudah selesai.
+              Apakah Anda yakin ingin keluar dari aplikasi? Jangan lupa pastikan
+              semua tugas patroli Anda hari ini sudah selesai.
             </Text>
 
             <View className="flex-row w-full justify-between gap-3">
