@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -15,32 +14,23 @@ import {
   View,
 } from "react-native";
 import { captureRef } from "react-native-view-shot";
+
+// 💡 Import semua utilitas yang udah lu pisah
+import { formatDateIndo } from "../../../lib/dateUtils";
+import { compressToWebP } from "../../../lib/imageUtils";
+import { getDistance } from "../../../lib/locationUtils";
 import { supabase } from "../../../lib/supabase";
 import { sendActivityLog } from "../../../lib/tracker";
-
-const getDistance = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-) => {
-  const R = 6371e3;
-  const p = Math.PI / 180;
-  const a =
-    0.5 -
-    Math.cos((lat2 - lat1) * p) / 2 +
-    (Math.cos(lat1 * p) *
-      Math.cos(lat2 * p) *
-      (1 - Math.cos((lon2 - lon1) * p))) /
-      2;
-  return R * 2 * Math.asin(Math.sqrt(a));
-};
 
 export default function AbsenMasukScreen() {
   const router = useRouter();
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
+
+  // State buat nampung identitas karyawan di Watermark
+  const [employeeName, setEmployeeName] = useState<string>("Memuat Nama...");
+  const [employeeCode, setEmployeeCode] = useState<string>("-");
 
   const [modalConfig, setModalConfig] = useState<{
     visible: boolean;
@@ -110,22 +100,16 @@ export default function AbsenMasukScreen() {
 
       if (data) {
         const formattedHistory = data.map((item) => {
-          const d = new Date(item.date);
-          const bulanIndo = [
-            "Januari",
-            "Februari",
-            "Maret",
-            "April",
-            "Mei",
-            "Juni",
-            "Juli",
-            "Agustus",
-            "September",
-            "Oktober",
-            "November",
-            "Desember",
-          ];
-          const dateString = `${d.getDate()} ${bulanIndo[d.getMonth()]} ${d.getFullYear()}`;
+          // 💡 JARING PENGAMAN: Biar history gak blank kalau ada data tanggal yang nyangkut/null
+          let dateString = "-";
+          try {
+            if (item.date) {
+              dateString = formatDateIndo(item.date);
+            }
+          } catch (e) {
+            console.log("Error format tanggal:", e);
+            dateString = item.date || "Error";
+          }
 
           let timeString = "-";
           let statusText = "Belum Absen";
@@ -222,13 +206,22 @@ export default function AbsenMasukScreen() {
         await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
 
+      // Tarik nama dan NIK dari tabel users
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("siteId, allowMobileAttendance, role")
+        .select("siteId, allowMobileAttendance, role, name, employeeCode")
         .eq("id", authData.user.id)
         .maybeSingle();
 
       if (userError) throw userError;
+
+      // Set State buat nampilin di Watermark
+      if (userData) {
+        setEmployeeName(
+          userData.name || authData.user.email?.split("@")[0] || "Karyawan",
+        );
+        setEmployeeCode(userData.employeeCode || "N/A");
+      }
 
       if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
         setIsAdmin(true);
@@ -239,16 +232,24 @@ export default function AbsenMasukScreen() {
         now.getMonth() + 1,
       ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+      // PERBAIKAN SHIFT MALAM: Tahan tombol Masuk kalau ada shift nggantung
       const { data: attendanceData } = await supabase
         .from("attendances")
-        .select("id, actualCheckIn")
+        .select("id, date, actualCheckIn, actualCheckOut")
         .eq("userId", authData.user.id)
-        .eq("date", todayString)
+        .order("date", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (attendanceData) {
-        setCurrentAttendanceId(attendanceData.id);
-        if (attendanceData.actualCheckIn) setHasCheckedIn(true);
+        const isToday = attendanceData.date === todayString;
+        const isNightShiftActive =
+          attendanceData.actualCheckIn && !attendanceData.actualCheckOut;
+
+        if (isToday || isNightShiftActive) {
+          setCurrentAttendanceId(attendanceData.id);
+          setHasCheckedIn(true);
+        }
       }
 
       if (userData?.allowMobileAttendance) {
@@ -413,12 +414,7 @@ export default function AbsenMasukScreen() {
           quality: 0.8,
         });
 
-        const manipResult = await ImageManipulator.manipulateAsync(
-          watermarkedImageUri,
-          [],
-          { compress: 0.7, format: ImageManipulator.SaveFormat.WEBP },
-        );
-        imageUriToUpload = manipResult.uri;
+        imageUriToUpload = await compressToWebP(watermarkedImageUri, 0.7);
       }
 
       const { data: authData } = await supabase.auth.getUser();
@@ -456,7 +452,7 @@ export default function AbsenMasukScreen() {
         .getPublicUrl(storageData.path);
 
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
+      const localDateTime = timeToDisplay.toISOString();
 
       const updatePayload = {
         actualCheckIn: localDateTime,
@@ -709,7 +705,6 @@ export default function AbsenMasukScreen() {
                 <Text className="text-gray-900 font-bold mb-0.5">
                   {item.date}
                 </Text>
-                {/* 💡 PERBAIKAN: Hapus kelas flex-row yang dilarang di komponen Text */}
                 <Text className="text-gray-500 text-xs mt-0.5">
                   Jam {item.time} •{" "}
                   <Text className="text-sky-600 font-medium">{item.type}</Text>
@@ -749,18 +744,52 @@ export default function AbsenMasukScreen() {
                   className="flex-1"
                   resizeMode="cover"
                 />
-                <View className="absolute bottom-28 left-4 bg-black/60 px-4 py-2 rounded-xl border-l-4 border-emerald-500">
-                  <Text className="text-white font-bold text-lg mb-0.5">
-                    {formattedDate} - {hours}:{minutes}:{seconds}
-                  </Text>
-                  <Text className="text-gray-300 text-xs font-semibold">
-                    <Ionicons name="location" size={12} color="#10b981" />{" "}
-                    {matchedLocation?.name || "Lokasi Tidak Diketahui"}
-                  </Text>
-                  <Text className="text-gray-300 text-[10px] mt-0.5">
-                    Lat: {userLocation?.lat?.toFixed(5) || "-"}, Long:{" "}
-                    {userLocation?.lon?.toFixed(5) || "-"}
-                  </Text>
+
+                {/* 💡 DESAIN WATERMARK MODERN */}
+                <View className="absolute bottom-28 left-4 right-4 bg-black/75 p-4 rounded-2xl border border-white/20 shadow-2xl">
+                  {/* Nama & Kode Karyawan */}
+                  <View className="flex-row items-center mb-2.5 border-b border-white/20 pb-2.5">
+                    <View className="w-10 h-10 bg-emerald-500 rounded-full items-center justify-center mr-3">
+                      <Text className="text-white font-bold text-lg">
+                        {employeeName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white font-extrabold text-base uppercase tracking-wide">
+                        {employeeName}
+                      </Text>
+                      <Text className="text-emerald-400 font-semibold text-xs mt-0.5">
+                        ID: {employeeCode}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Jam & Tanggal */}
+                  <View className="flex-row items-center mb-1.5">
+                    <Ionicons name="time" size={14} color="#10b981" />
+                    <Text className="text-white font-bold text-sm ml-2">
+                      {formattedDate} • {hours}:{minutes}:{seconds} WIB
+                    </Text>
+                  </View>
+
+                  {/* Lokasi & Koordinat */}
+                  <View className="flex-row items-start">
+                    <Ionicons
+                      name="location"
+                      size={14}
+                      color="#f59e0b"
+                      style={{ marginTop: 2 }}
+                    />
+                    <View className="ml-2 flex-1">
+                      <Text className="text-gray-200 text-xs font-semibold leading-tight">
+                        {matchedLocation?.name || "Lokasi Tidak Diketahui"}
+                      </Text>
+                      <Text className="text-gray-400 text-[10px] mt-0.5">
+                        Lat: {userLocation?.lat?.toFixed(5) || "-"}, Long:{" "}
+                        {userLocation?.lon?.toFixed(5) || "-"}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </View>
 

@@ -10,18 +10,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../../lib/supabase";
 
-// Rumus Haversine buat hitung jarak radius geofence
-const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371e3;
-  const p = Math.PI / 180;
-  const a =
-    0.5 -
-    Math.cos((lat2 - lat1) * p) / 2 +
-    (Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lon2 - lon1) * p))) / 2;
-  return R * 2 * Math.asin(Math.sqrt(a));
-};
+// 💡 Panggil utilitas rumus jarak lu di sini
+import { getDistance } from "../../../lib/locationUtils";
+import { supabase } from "../../../lib/supabase";
+import { sendActivityLog } from "../../../lib/tracker";
 
 export default function AbsenPulangScreen() {
   const router = useRouter();
@@ -32,11 +25,18 @@ export default function AbsenPulangScreen() {
 
   // State Validasi Lokasi (GPS)
   const [isLocationValid, setIsLocationValid] = useState(false);
-  const [locationMessage, setLocationMessage] = useState("Mendapatkan Koordinat...");
-  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [locationMessage, setLocationMessage] = useState(
+    "Mendapatkan Koordinat...",
+  );
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
 
   // State Aturan Absen & Data DB
-  const [currentAttendanceId, setCurrentAttendanceId] = useState<string | null>(null);
+  const [currentAttendanceId, setCurrentAttendanceId] = useState<string | null>(
+    null,
+  );
   const [dbJamMasuk, setDbJamMasuk] = useState<string | null>(null);
   const [hasCheckedOut, setHasCheckedOut] = useState(false);
   const [scheduleOutTime, setScheduleOutTime] = useState<Date | null>(null);
@@ -45,14 +45,71 @@ export default function AbsenPulangScreen() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [bypassWaktuPulang, setBypassWaktuPulang] = useState(false);
 
+  const getAuthInfo = async () => {
+    const { data } = await supabase.auth.getSession();
+    return {
+      token: data.session?.access_token || null,
+      email: data.session?.user?.email || "unknown@hris.com",
+    };
+  };
+
   const validateLocation = async () => {
     try {
+      const authInfo = await getAuthInfo();
+
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") throw new Error("Izin akses lokasi (GPS) ditolak.");
+      if (status !== "granted") {
+        await sendActivityLog(
+          "FAILED_GPS_DENIED",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_OUT",
+          },
+        );
+        throw new Error("Izin akses lokasi (GPS) ditolak.");
+      }
 
       setLocationMessage("Mengambil data GPS kamu...");
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setUserLocation({ lat: location.coords.latitude, lon: location.coords.longitude });
+
+      let location;
+      try {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+      } catch (gpsError) {
+        await sendActivityLog(
+          "FAILED_GPS_TIMEOUT",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_OUT",
+          },
+        );
+        throw new Error("Gagal mengunci sinyal GPS. Pastikan GPS menyala.");
+      }
+
+      setUserLocation({
+        lat: location.coords.latitude,
+        lon: location.coords.longitude,
+      });
+
+      if (location.mocked) {
+        await sendActivityLog(
+          "FAILED_FAKE_GPS",
+          authInfo.token,
+          authInfo.email,
+          {
+            action: "ATTENDANCE_OUT",
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            isMockLocation: true,
+          },
+        );
+        throw new Error(
+          "Terdeteksi aplikasi Lokasi Palsu (Fake GPS). Absen dikunci.",
+        );
+      }
 
       setLocationMessage("Memeriksa profil & sesi...");
       const { data: authData } = await supabase.auth.getUser();
@@ -68,7 +125,7 @@ export default function AbsenPulangScreen() {
         setIsSuperAdmin(true);
       }
 
-      // 1. CEK SESI ABSEN (Fix Shift Malam)
+      // 1. CEK SESI ABSEN
       const { data: attData } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, actualCheckOut, scheduledEnd")
@@ -80,20 +137,30 @@ export default function AbsenPulangScreen() {
 
       if (attData) {
         setCurrentAttendanceId(attData.id);
-        
-        if (attData.actualCheckIn) {
-          setDbJamMasuk(attData.actualCheckIn);
+
+        // 💡 JARING PENGAMAN ZONA WAKTU: Biar hitungan durasi & jam masuk gak ngaco
+        let safeCheckIn = attData.actualCheckIn;
+        if (
+          safeCheckIn &&
+          !safeCheckIn.endsWith("Z") &&
+          !safeCheckIn.includes("+")
+        ) {
+          safeCheckIn += "Z";
+        }
+
+        if (safeCheckIn) {
+          setDbJamMasuk(safeCheckIn);
         }
 
         if (attData.scheduledEnd) {
           const [h, m, s] = attData.scheduledEnd.split(":");
-          const tempDate = new Date(attData.actualCheckIn || new Date()); 
+          const tempDate = new Date(safeCheckIn || new Date());
           tempDate.setHours(parseInt(h), parseInt(m), parseInt(s || "0"), 0);
-          
-          if (tempDate < new Date(attData.actualCheckIn)) {
+
+          if (tempDate < new Date(safeCheckIn!)) {
             tempDate.setDate(tempDate.getDate() + 1);
           }
-          
+
           setScheduleOutTime(tempDate);
         }
       } else {
@@ -117,6 +184,8 @@ export default function AbsenPulangScreen() {
         }
 
         let foundValidLocation = null;
+        let finalDistance = Infinity;
+
         for (const loc of locationData) {
           const distance = getDistance(
             location.coords.latitude,
@@ -124,8 +193,9 @@ export default function AbsenPulangScreen() {
             loc.latitude,
             loc.longitude,
           );
-          
-          // 💡 PERBAIKAN: Radius database diabaikan, dipaksa jadi 1000 meter (1 KM)
+
+          if (distance < finalDistance) finalDistance = distance;
+
           if (distance <= 1000) {
             foundValidLocation = loc;
             break;
@@ -137,10 +207,22 @@ export default function AbsenPulangScreen() {
           setLocationMessage(`Zona Valid: Radius ${foundValidLocation.name}`);
         } else {
           setIsLocationValid(false);
+          await sendActivityLog(
+            "FAILED_OUT_OF_RADIUS",
+            authInfo.token,
+            authInfo.email,
+            {
+              action: "ATTENDANCE_OUT",
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              isMockLocation: false,
+              distance: finalDistance,
+            },
+          );
+
           setLocationMessage("Kamu berada di luar radius kantor!");
         }
       }
-
     } catch (error: any) {
       setIsLocationValid(false);
       setLocationMessage(error.message || "Gagal memvalidasi lokasi.");
@@ -156,10 +238,6 @@ export default function AbsenPulangScreen() {
   const hours = currentTime.getHours().toString().padStart(2, "0");
   const minutes = currentTime.getMinutes().toString().padStart(2, "0");
   const seconds = currentTime.getSeconds().toString().padStart(2, "0");
-
-  const day = currentTime.getDate().toString().padStart(2, "0");
-  const month = (currentTime.getMonth() + 1).toString().padStart(2, "0");
-  const year = currentTime.getFullYear();
 
   // Hitung Durasi Shift
   const getDurasiKerja = () => {
@@ -181,8 +259,12 @@ export default function AbsenPulangScreen() {
   };
 
   // Validasi Aturan Tombol Utama
-  const isTooEarly = scheduleOutTime && !bypassWaktuPulang ? currentTime < scheduleOutTime : false;
-  const isButtonDisabled = !isLocationValid || hasCheckedOut || !dbJamMasuk || isTooEarly || isLoading;
+  const isTooEarly =
+    scheduleOutTime && !bypassWaktuPulang
+      ? currentTime < scheduleOutTime
+      : false;
+  const isButtonDisabled =
+    !isLocationValid || hasCheckedOut || !dbJamMasuk || isTooEarly || isLoading;
 
   let buttonTitle = "CATAT ABSEN PULANG";
   let buttonSubtitle = "Hanya validasi GPS lokasi";
@@ -210,7 +292,7 @@ export default function AbsenPulangScreen() {
     setIsLoading(true);
 
     try {
-      const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
+      const localDateTime = new Date().toISOString();
 
       const { error } = await supabase
         .from("attendances")
@@ -223,6 +305,14 @@ export default function AbsenPulangScreen() {
 
       if (error) throw error;
 
+      const authInfo = await getAuthInfo();
+      await sendActivityLog("SUCCESS", authInfo.token, authInfo.email, {
+        action: "ATTENDANCE_OUT",
+        latitude: userLocation?.lat,
+        longitude: userLocation?.lon,
+        isMockLocation: false,
+      });
+
       setHasCheckedOut(true);
       setIsLoading(false);
       Alert.alert("Absen Pulang Berhasil", "Selamat beristirahat!", [
@@ -230,7 +320,10 @@ export default function AbsenPulangScreen() {
       ]);
     } catch (error: any) {
       setIsLoading(false);
-      Alert.alert("Gagal Absen Pulang", error.message || "Terjadi kesalahan server.");
+      Alert.alert(
+        "Gagal Absen Pulang",
+        error.message || "Terjadi kesalahan server.",
+      );
     }
   };
 
@@ -246,29 +339,48 @@ export default function AbsenPulangScreen() {
         </TouchableOpacity>
         <View>
           <Text className="text-xl font-bold text-gray-900">Absen Pulang</Text>
-          <Text className="text-gray-500 text-xs mt-0.5">Selesaikan shift kerjamu hari ini</Text>
+          <Text className="text-gray-500 text-xs mt-0.5">
+            Selesaikan shift kerjamu hari ini
+          </Text>
         </View>
       </View>
 
-      <ScrollView className="flex-1 px-6 pt-6" contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        className="flex-1 px-6 pt-6"
+        contentContainerStyle={{ paddingBottom: 100 }}
+      >
         {/* Card Waktu */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6 items-center">
           <Text className="text-gray-500 font-medium mb-2">Waktu Saat Ini</Text>
           <View className="flex-row items-end mb-4">
-            <Text className="text-5xl font-extrabold text-gray-900 tracking-tight">{hours}:{minutes}</Text>
-            <Text className="text-2xl font-bold text-gray-400 ml-1 mb-1">:{seconds}</Text>
+            <Text className="text-5xl font-extrabold text-gray-900 tracking-tight">
+              {hours}:{minutes}
+            </Text>
+            <Text className="text-2xl font-bold text-gray-400 ml-1 mb-1">
+              :{seconds}
+            </Text>
           </View>
 
-          <View className={`flex-row items-center px-4 py-2 rounded-full ${isLocationValid ? "bg-emerald-50" : "bg-amber-50"}`}>
+          <View
+            className={`flex-row items-center px-4 py-2 rounded-full ${isLocationValid ? "bg-emerald-50" : "bg-amber-50"}`}
+          >
             {isLocationValid ? (
               <>
                 <Ionicons name="location" size={16} color="#10b981" />
-                <Text className="text-emerald-700 text-xs font-bold ml-2">{locationMessage}</Text>
+                <Text className="text-emerald-700 text-xs font-bold ml-2">
+                  {locationMessage}
+                </Text>
               </>
             ) : (
               <>
-                {userLocation ? <Ionicons name="warning" size={16} color="#f59e0b" /> : <ActivityIndicator size="small" color="#f59e0b" />}
-                <Text className="text-amber-700 text-xs font-bold ml-2">{locationMessage}</Text>
+                {userLocation ? (
+                  <Ionicons name="warning" size={16} color="#f59e0b" />
+                ) : (
+                  <ActivityIndicator size="small" color="#f59e0b" />
+                )}
+                <Text className="text-amber-700 text-xs font-bold ml-2">
+                  {locationMessage}
+                </Text>
               </>
             )}
           </View>
@@ -276,16 +388,22 @@ export default function AbsenPulangScreen() {
 
         {/* Ringkasan Shift */}
         <View className="bg-blue-600 rounded-3xl p-5 shadow-md mb-8">
-          <Text className="text-blue-100 font-medium text-sm mb-4">Ringkasan Shift Hari Ini</Text>
+          <Text className="text-blue-100 font-medium text-sm mb-4">
+            Ringkasan Shift Hari Ini
+          </Text>
           <View className="flex-row justify-between items-center">
             <View>
               <Text className="text-blue-200 text-xs mb-1">Jam Masuk</Text>
-              <Text className="text-white text-xl font-bold">{getTeksJamMasuk()}</Text>
+              <Text className="text-white text-xl font-bold">
+                {getTeksJamMasuk()}
+              </Text>
             </View>
             <View className="h-8 w-[1px] bg-blue-400" />
             <View className="items-end">
               <Text className="text-blue-200 text-xs mb-1">Durasi Kerja</Text>
-              <Text className="text-white text-xl font-bold">{getDurasiKerja()}</Text>
+              <Text className="text-white text-xl font-bold">
+                {getDurasiKerja()}
+              </Text>
             </View>
           </View>
         </View>
@@ -306,8 +424,18 @@ export default function AbsenPulangScreen() {
                 <Ionicons name={buttonIcon as any} size={24} color="white" />
               </View>
               <View className="items-start">
-                <Text className="text-white font-extrabold text-lg tracking-wide">{buttonTitle}</Text>
-                <Text className={isButtonDisabled ? "text-slate-100 text-xs" : "text-rose-100 text-xs"}>{buttonSubtitle}</Text>
+                <Text className="text-white font-extrabold text-lg tracking-wide">
+                  {buttonTitle}
+                </Text>
+                <Text
+                  className={
+                    isButtonDisabled
+                      ? "text-slate-100 text-xs"
+                      : "text-rose-100 text-xs"
+                  }
+                >
+                  {buttonSubtitle}
+                </Text>
               </View>
             </>
           )}
@@ -316,7 +444,9 @@ export default function AbsenPulangScreen() {
         {/* ✅ MENU DEBUG UNGU KHUSUS SUPER_ADMIN (Selalu Bisa Dipencet) */}
         {isSuperAdmin && (
           <View className="mt-6 p-4 border border-purple-200 bg-purple-50 rounded-2xl items-center">
-            <Text className="text-purple-700 font-bold mb-3 text-xs uppercase tracking-wider">🛠️ Menu Debug Admin (Selalu Aktif)</Text>
+            <Text className="text-purple-700 font-bold mb-3 text-xs uppercase tracking-wider">
+              🛠️ Menu Debug Admin (Selalu Aktif)
+            </Text>
             <View className="flex-row flex-wrap justify-center gap-2 w-full">
               <TouchableOpacity
                 onPress={() => setHasCheckedOut(!hasCheckedOut)}
@@ -337,7 +467,9 @@ export default function AbsenPulangScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => setDbJamMasuk(dbJamMasuk ? null : new Date().toISOString())}
+                onPress={() =>
+                  setDbJamMasuk(dbJamMasuk ? null : new Date().toISOString())
+                }
                 className="px-3 py-2 rounded-lg bg-purple-600 active:bg-purple-700"
               >
                 <Text className="text-white font-semibold text-[10px] text-center">
