@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -8,12 +8,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan path Supabase kamu
+import { supabase } from "../../lib/supabase";
 
 export default function PatrolScreen() {
   const router = useRouter();
 
-  // States untuk data dinamis
   const [patrolPoints, setPatrolPoints] = useState<any[]>([]);
   const [userRole, setUserRole] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
@@ -21,11 +20,9 @@ export default function PatrolScreen() {
   const fetchPatrolData = async () => {
     setLoading(true);
     try {
-      // 1. Ambil ID User yang login
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return;
 
-      // 2. Ambil Profil User (Role dan siteId)
       const { data: profile } = await supabase
         .from("users")
         .select("role, siteId")
@@ -33,9 +30,8 @@ export default function PatrolScreen() {
         .single();
 
       if (!profile) return;
-      setUserRole(profile.role); // Simpan role untuk masking fitur
+      setUserRole(profile.role);
 
-      // 3. Ambil seluruh titik lokasi patroli di Site ini
       const { data: locations, error: locError } = await supabase
         .from("patrol_locations")
         .select("*")
@@ -43,40 +39,42 @@ export default function PatrolScreen() {
 
       if (locError) throw locError;
 
-      // 4. Ambil data patroli khusus hari ini untuk hitung counter & jam terakhir check
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const now = new Date();
+      const todayDateOnly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-      const { data: todayPatrols } = await supabase
+      // 💡 PERBAIKAN UTAMA: Tambahkan eq("userId") agar hanya mengambil laporan milik user yang login
+      const { data: todayPatrols, error: patrolError } = await supabase
         .from("patrols")
-        .select("id, locationId, createdAt")
-        .gte("createdAt", todayStart.toISOString());
+        .select("id, patrolLocationId, checkInTime")
+        .eq("date", todayDateOnly)
+        .eq("userId", authData.user.id);
 
-      // 5. Mapping data gabungan ke bentuk state layout
+      if (patrolError) throw patrolError;
+
       const formattedPoints =
         locations?.map((loc: any) => {
-          // Cari report hari ini yang cocok dengan ID lokasi ini
           const matchedReports =
-            todayPatrols?.filter((p: any) => p.locationId === loc.id) || [];
+            todayPatrols?.filter((p: any) => p.patrolLocationId === loc.id) ||
+            [];
 
           let lastCheckedTime = null;
           if (matchedReports.length > 0) {
-            // Urutkan paling baru untuk dapet jam check terakhir
             const sortedReports = [...matchedReports].sort(
               (a, b) =>
-                new Date(b.createdAt).getTime() -
-                new Date(a.createdAt).getTime()
+                new Date(b.checkInTime).getTime() -
+                new Date(a.checkInTime).getTime(),
             );
-            const latestDate = new Date(sortedReports[0].createdAt);
+            const latestDate = new Date(sortedReports[0].checkInTime);
             lastCheckedTime = latestDate.toLocaleTimeString("id-ID", {
               hour: "2-digit",
               minute: "2-digit",
+              hour12: false,
             });
           }
 
           return {
             id: loc.id,
-            location: loc.name || loc.location, // Mengantisipasi nama kolom name/location di DB
+            location: loc.name || loc.location,
             lastChecked: lastCheckedTime,
             reportCount: matchedReports.length,
           };
@@ -90,17 +88,18 @@ export default function PatrolScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchPatrolData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchPatrolData();
+    }, []),
+  );
 
   return (
-    <ScrollView 
+    <ScrollView
       className="flex-1 bg-slate-50 pt-14 px-5"
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100 }}
     >
-      {/* 🚀 HEADER UTAMA HALAMAN PATROLI */}
       <View className="mb-6">
         <Text className="text-2xl font-extrabold text-slate-950">
           Laporan Patroli
@@ -110,7 +109,6 @@ export default function PatrolScreen() {
         </Text>
       </View>
 
-      {/* 1. Card Laporan Patroli — MASKING: Selain Staff yang bisa lihat */}
       {userRole !== "STAFF" && userRole !== "" && (
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
           <Text className="text-slate-500 text-sm font-semibold mb-3">
@@ -128,7 +126,6 @@ export default function PatrolScreen() {
         </View>
       )}
 
-      {/* 2. Card List Titik Patroli */}
       <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-slate-800 text-lg font-bold">
@@ -146,7 +143,6 @@ export default function PatrolScreen() {
             Tidak ada titik patroli yang terdaftar di lokasi ini.
           </Text>
         ) : (
-          /* Looping data dinamis dari Supabase */
           patrolPoints.map((item, index) => {
             const hasReport = item.reportCount > 0;
 
@@ -161,7 +157,7 @@ export default function PatrolScreen() {
                     : ""
                 }`}
               >
-                <View className="flex-row items-center flex-1">
+                <View className="flex-row items-center flex-1 pr-3">
                   <View
                     className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
                       hasReport ? "bg-green-100" : "bg-slate-100"
@@ -174,7 +170,7 @@ export default function PatrolScreen() {
                     />
                   </View>
 
-                  <View className="flex-1 pr-2">
+                  <View className="flex-1">
                     <Text
                       className={`text-base font-semibold ${
                         hasReport ? "text-slate-800" : "text-slate-600"
@@ -183,16 +179,20 @@ export default function PatrolScreen() {
                     >
                       {item.location}
                     </Text>
-                    <Text className="text-slate-400 text-sm mt-0.5">
+                    <Text
+                      className="text-slate-400 text-sm mt-0.5"
+                      numberOfLines={1}
+                    >
                       Terakhir di Check:{" "}
                       {item.lastChecked ? `${item.lastChecked} WIB` : "Belum"}
                     </Text>
                   </View>
                 </View>
 
-                <View className="flex-row items-center">
+                {/* Counter Report (Sudah aman ukurannya) */}
+                <View className="flex-row items-center justify-end shrink-0">
                   <View
-                    className={`px-3 py-1 rounded-full mr-1 ${
+                    className={`px-3 py-1 rounded-full mr-1 items-center justify-center ${
                       hasReport ? "bg-green-50" : "bg-orange-50"
                     }`}
                   >
@@ -200,11 +200,11 @@ export default function PatrolScreen() {
                       className={`text-xs font-bold ${
                         hasReport ? "text-green-600" : "text-orange-500"
                       }`}
+                      numberOfLines={1}
                     >
                       {item.reportCount} Report
                     </Text>
                   </View>
-
                   <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
                 </View>
               </TouchableOpacity>
@@ -213,20 +213,22 @@ export default function PatrolScreen() {
         )}
       </View>
 
-      {/* 3. TOMBOL TESTING / BACKDOOR — MASKING: Hanya SUPER_ADMIN yang bisa lihat */}
       {userRole === "SUPER_ADMIN" && (
         <TouchableOpacity
           onPress={() =>
             router.push({
               pathname: "/patrol/input" as any,
-              params: { locationId: "1" },
+              params: {
+                locationId: "cmudsezk5000110d9yqtxubmp",
+                isSimulated: "true",
+              },
             })
           }
           className="bg-indigo-100 border border-indigo-200 py-4 rounded-xl items-center justify-center mb-6 flex-row border-dashed"
         >
           <Ionicons name="bug-outline" size={20} color="#4338ca" />
           <Text className="text-indigo-700 font-bold ml-2">
-            [DEV] Simulasi Scan QR
+            [DEV] Simulasi Scan QR (Head Office)
           </Text>
         </TouchableOpacity>
       )}

@@ -23,7 +23,9 @@ import { sendActivityLog } from "../../lib/tracker";
 
 export default function PatrolInputScreen() {
   const router = useRouter();
-  const { locationId } = useLocalSearchParams();
+
+  // 💡 Tangkap isSimulated dari parameter URL
+  const { locationId, isSimulated } = useLocalSearchParams();
 
   const [status, setStatus] = useState("Aman");
   const [note, setNote] = useState("");
@@ -32,7 +34,7 @@ export default function PatrolInputScreen() {
   const [isCompressing, setIsCompressing] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const MAX_PHOTOS = 3;
+  const MAX_PHOTOS = 9;
 
   const [dbLocationName, setDbLocationName] = useState("");
   const [dbSiteName, setDbSiteName] = useState("");
@@ -111,6 +113,25 @@ export default function PatrolInputScreen() {
           return;
         }
 
+        // 💡 JURUS HYBRID: Bypass hanya berlaku kalau mode DEV dan dipanggil lewat tombol simulasi
+        if (__DEV__ && isSimulated === "true") {
+          console.log("🛠️ DEV MODE AKTIF: Bypass GPS...");
+          setDbLocationName(`[DEV] ${data.name}`);
+
+          if (data.sites) {
+            const siteObj = Array.isArray(data.sites)
+              ? data.sites[0]
+              : data.sites;
+            if (siteObj && (siteObj as any).name) {
+              setDbSiteName((siteObj as any).name);
+            }
+          }
+
+          setIsPageLoading(false);
+          return; // 🚀 Langsung STOP di sini! Nggak lanjut ngecek GPS
+        }
+
+        // Kalau isSimulated nggak ada (lewat kamera asli), dia bakal nuntut cek GPS murni
         const locStatus = await Location.requestForegroundPermissionsAsync();
         if (locStatus.status !== "granted") {
           showModal(
@@ -176,7 +197,7 @@ export default function PatrolInputScreen() {
       }
     };
     validateAndFetchLocation();
-  }, [locationId]);
+  }, [locationId, isSimulated]);
 
   const handleAddPhotoCamera = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
@@ -286,7 +307,7 @@ export default function PatrolInputScreen() {
           gpsLat: gps.coords.latitude,
           gpsLng: gps.coords.longitude,
           gpsAccuracy: gps.coords.accuracy,
-          barcodeScanned: true,
+          barcodeScanned: true, // Untuk Dev Test nggak masalah diset true
           description: note,
           updatedAt: localDateTime,
         });
@@ -374,10 +395,8 @@ export default function PatrolInputScreen() {
     }
   };
 
-  // 💡 PERUBAHAN UTAMA ADA DI STRUKTUR RETURN INI
   return (
     <View className="flex-1 bg-slate-50">
-      {/* 💡 Kondisi: Kalau masih loading, tampilin UI Loading */}
       {isPageLoading ? (
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="#3b82f6" />
@@ -386,7 +405,6 @@ export default function PatrolInputScreen() {
           </Text>
         </View>
       ) : (
-        /* 💡 Kondisi: Kalau udah beres loading, tampilin Form */
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "padding"}
@@ -574,8 +592,6 @@ export default function PatrolInputScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       )}
-
-      {/* 💡 MODAL UI SEKARANG BERADA DI LUAR CONDITIONAL LOADING (PASTI MUNCUL!) */}
 
       {/* LOADING OVERLAY SAAT SUBMIT */}
       <Modal transparent visible={isSubmitting} animationType="fade">

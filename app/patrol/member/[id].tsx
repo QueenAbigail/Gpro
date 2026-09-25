@@ -3,211 +3,227 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../../lib/supabase"; // Path disesuaikan (keluar 3 tingkat)
+import { supabase } from "../../../lib/supabase";
 
-export default function MemberPatrolDetailScreen() {
+export default function MemberPatrolLocationsScreen() {
   const router = useRouter();
-
-  // Tangkap data dari lembaran router.push halaman list kemarin
-  const { id, name, role, reported, remaining } = useLocalSearchParams();
+  const { id, name, employeeCode } = useLocalSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [reportHistory, setReportHistory] = useState<any[]>([]);
+  const [visitedPoints, setVisitedPoints] = useState<any[]>([]);
+  const [stats, setStats] = useState({ reported: 0, remaining: 0 });
 
   useEffect(() => {
-    const fetchMemberData = async () => {
+    const fetchMemberLocations = async () => {
       if (!id) return;
       setLoading(true);
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Filter patroli khusus hari ini saja
+      try {
+        const { data: memberProfile } = await supabase
+          .from("users")
+          .select("siteId")
+          .eq("id", id)
+          .single();
 
-      // Query laporan patroli berdasarkan USER ID si anggota
-      const { data: reports, error } = await supabase
-        .from("patrols")
-        .select(
-          `
-          id, 
-          createdAt, 
-          status, 
-          note,
-          patrol_locations ( name, code ),
-          patrol_evidence ( imageUrl )
-        `,
-        )
-        .eq("userId", id)
-        .gte("createdAt", today.toISOString())
-        .order("createdAt", { ascending: false });
+        if (!memberProfile?.siteId) return;
 
-      if (reports) {
-        const formatted = reports.map((r: any) => ({
-          id: r.id,
-          time: new Date(r.createdAt).toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          status: r.status,
-          note: r.note,
-          locationName: r.patrol_locations?.name || "Titik Tidak Diketahui",
-          locationCode: r.patrol_locations?.code || "-",
-          photos: r.patrol_evidence
-            ? r.patrol_evidence.map((e: any) => e.imageUrl)
-            : [],
-        }));
-        setReportHistory(formatted);
+        const { data: allLocations } = await supabase
+          .from("patrol_locations")
+          .select("id, name")
+          .eq("siteId", memberProfile.siteId);
+
+        const totalLocations = allLocations?.length || 0;
+
+        const todayDateOnly = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+
+        const { data: reports } = await supabase
+          .from("patrols")
+          .select("id, patrolLocationId, checkInTime")
+          .eq("userId", id)
+          .eq("date", todayDateOnly);
+
+        if (allLocations && reports) {
+          const visited = allLocations
+            .map((loc) => {
+              const locReports = reports.filter(
+                (r) => r.patrolLocationId === loc.id,
+              );
+
+              if (locReports.length === 0) return null;
+
+              const sortedReports = [...locReports].sort(
+                (a, b) =>
+                  new Date(b.checkInTime).getTime() -
+                  new Date(a.checkInTime).getTime(),
+              );
+
+              const latestDate = new Date(sortedReports[0].checkInTime);
+              const lastCheckedTime = latestDate.toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              });
+
+              return {
+                id: loc.id,
+                locationName: loc.name,
+                reportCount: locReports.length,
+                lastChecked: lastCheckedTime,
+              };
+            })
+            .filter(Boolean);
+
+          setVisitedPoints(visited);
+          setStats({
+            reported: visited.length,
+            remaining: Math.max(0, totalLocations - visited.length),
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching member locations:", error);
+      } finally {
+        setLoading(false);
       }
-
-      if (error) console.error("Error fetch log patroli anggota:", error);
-      setLoading(false);
     };
 
-    fetchMemberData();
+    fetchMemberLocations();
   }, [id]);
 
   return (
-    <ScrollView
-      className="flex-1 bg-slate-50 pt-12 px-5"
-      contentContainerStyle={{ paddingBottom: 80 }}
-    >
-      {/* HEADER */}
-      <View className="flex-row items-center mb-6">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-        >
-          <Ionicons name="arrow-back" size={20} color="#334155" />
-        </TouchableOpacity>
-        <Text className="text-xl font-bold text-slate-800">
-          Live Progress Patroli
-        </Text>
-      </View>
-
-      {/* CARD UTAMA: IDENTITAS ANGGOTA (Bukan Nama Lokasi tunggal lagi) */}
-      <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
-        <View className="flex-row items-center mb-3">
-          <View className="w-10 h-10 rounded-full bg-blue-100 items-center justify-center mr-3">
-            <Ionicons name="person" size={18} color="#3b82f6" />
-          </View>
-          <View>
-            <Text className="text-lg font-bold text-slate-800">{name}</Text>
-            <Text className="text-slate-400 text-xs">{role}</Text>
-          </View>
-        </View>
-        <View className="flex-row justify-between border-t border-slate-100 pt-3">
-          <Text className="text-slate-500 text-xs font-medium">
-            Selesai:{" "}
-            <Text className="text-slate-900 font-bold">{reported} Titik</Text>
-          </Text>
-          <Text className="text-slate-500 text-xs font-medium">
-            Sisa:{" "}
-            <Text className="text-slate-900 font-bold">{remaining} Titik</Text>
+    <View className="flex-1 bg-slate-50">
+      <ScrollView
+        className="flex-1 pt-12 px-5"
+        contentContainerStyle={{ paddingBottom: 80 }}
+      >
+        <View className="flex-row items-center mb-6">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
+          >
+            <Ionicons name="arrow-back" size={20} color="#334155" />
+          </TouchableOpacity>
+          <Text className="text-xl font-bold text-slate-800">
+            Titik Dikunjungi
           </Text>
         </View>
-      </View>
 
-      <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
-        Riwayat Checkpoint Hari Ini ({reportHistory.length})
-      </Text>
-
-      {/* RENDER LIST LOG PATROLI */}
-      {loading ? (
-        <ActivityIndicator size="small" color="#3b82f6" />
-      ) : reportHistory.length === 0 ? (
-        <View className="bg-white rounded-2xl p-8 items-center shadow-sm border border-slate-100">
-          <View className="w-20 h-20 bg-slate-50 rounded-full items-center justify-center mb-4">
-            <Ionicons name="folder-open-outline" size={40} color="#cbd5e1" />
-          </View>
-          <Text className="text-slate-700 text-lg font-bold">
-            Belum Ada Laporan
-          </Text>
-        </View>
-      ) : (
-        reportHistory.map((report) => {
-          const isSafe = report.status === "Aman";
-          return (
-            <View
-              key={report.id}
-              className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4"
-            >
-              {/* Baris Atas: Jam & Status */}
-              <View className="flex-row justify-between items-center mb-2 border-b border-slate-100 pb-3">
-                <View className="flex-row items-center">
-                  <Ionicons name="time-outline" size={18} color="#64748b" />
-                  <Text className="text-slate-600 font-semibold ml-2">
-                    {report.time} WIB
-                  </Text>
-                </View>
-                <View
-                  className={`px-3 py-1 rounded-full flex-row items-center ${isSafe ? "bg-green-50" : "bg-red-50"}`}
-                >
-                  <Ionicons
-                    name={isSafe ? "checkmark-circle" : "warning"}
-                    size={14}
-                    color={isSafe ? "#16a34a" : "#dc2626"}
-                  />
-                  <Text
-                    className={`text-xs font-bold ml-1 ${isSafe ? "text-green-600" : "text-red-600"}`}
-                  >
-                    {report.status}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Info Lokasi Yang Dikunjungi */}
-              <View className="flex-row items-center mb-3">
-                <Ionicons name="location-outline" size={14} color="#3b82f6" />
-                <Text className="text-slate-800 font-bold text-sm ml-1">
-                  {report.locationName}{" "}
-                  <Text className="text-slate-400 font-normal text-xs">
-                    ({report.locationCode})
-                  </Text>
-                </Text>
-              </View>
-
-              {/* Bukti Foto Horizontal */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="mb-4"
-              >
-                {report.photos.map((photo: string, index: number) => (
-                  <View
-                    key={index}
-                    className="w-32 h-32 bg-slate-100 rounded-xl mr-3 overflow-hidden border border-slate-200"
-                  >
-                    {photo ? (
-                      <Image
-                        source={{ uri: photo }}
-                        className="w-full h-full"
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View className="flex-1 items-center justify-center">
-                        <Ionicons name="image" size={28} color="#94a3b8" />
-                        <Text className="text-slate-400 text-[10px] mt-2">
-                          Bukti {index + 1}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                ))}
-              </ScrollView>
-
-              {/* Catatan Temuan */}
-              <Text className="text-slate-500 text-sm leading-relaxed">
-                <Text className="font-semibold text-slate-700">Catatan: </Text>
-                {report.note || "Tidak ada catatan."}
+        <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
+          <View className="flex-row items-center mb-3">
+            <View className="w-10 h-10 rounded-full bg-blue-100 items-center justify-center mr-3">
+              <Ionicons name="person" size={18} color="#3b82f6" />
+            </View>
+            <View>
+              <Text className="text-lg font-bold text-slate-800">{name}</Text>
+              <Text className="text-slate-400 text-xs uppercase tracking-wider">
+                {employeeCode}
               </Text>
             </View>
-          );
-        })
-      )}
-    </ScrollView>
+          </View>
+          <View className="flex-row justify-between border-t border-slate-100 pt-3">
+            <Text className="text-slate-500 text-xs font-medium">
+              Selesai:{" "}
+              <Text className="text-slate-900 font-bold">
+                {stats.reported} Titik
+              </Text>
+            </Text>
+            <Text className="text-slate-500 text-xs font-medium">
+              Sisa:{" "}
+              <Text className="text-slate-900 font-bold">
+                {stats.remaining} Titik
+              </Text>
+            </Text>
+          </View>
+        </View>
+
+        <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
+          Daftar Lokasi Hari Ini ({visitedPoints.length})
+        </Text>
+
+        {loading ? (
+          <ActivityIndicator size="small" color="#3b82f6" />
+        ) : visitedPoints.length === 0 ? (
+          <View className="bg-white rounded-2xl p-8 items-center shadow-sm border border-slate-100">
+            <View className="w-20 h-20 bg-slate-50 rounded-full items-center justify-center mb-4">
+              <Ionicons name="map-outline" size={40} color="#cbd5e1" />
+            </View>
+            <Text className="text-slate-700 text-lg font-bold text-center">
+              Belum Keliling
+            </Text>
+            <Text className="text-slate-400 text-sm text-center mt-2">
+              Anggota ini belum mengirim laporan dari titik manapun.
+            </Text>
+          </View>
+        ) : (
+          <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            {visitedPoints.map((item, index) => {
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.6}
+                  // 💡 PERUBAHAN: Pindah ke folder baru sambil bawa ID user & Nama user
+                  onPress={() =>
+                    router.push({
+                      pathname: `/patrol/member/detail/${item.id}` as any,
+                      params: { userId: id, userName: name },
+                    })
+                  }
+                  className={`flex-row items-center justify-between py-3 ${
+                    index !== visitedPoints.length - 1
+                      ? "border-b border-slate-100"
+                      : ""
+                  }`}
+                >
+                  <View className="flex-row items-center flex-1 pr-3">
+                    <View className="w-10 h-10 rounded-full bg-green-100 items-center justify-center mr-3">
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={20}
+                        color="#16a34a"
+                      />
+                    </View>
+
+                    <View className="flex-1">
+                      <Text
+                        className="text-base font-semibold text-slate-800"
+                        numberOfLines={1}
+                      >
+                        {item.locationName}
+                      </Text>
+                      <Text
+                        className="text-slate-400 text-sm mt-0.5"
+                        numberOfLines={1}
+                      >
+                        Terakhir di Check: {item.lastChecked} WIB
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View className="flex-row items-center justify-end shrink-0">
+                    <View className="px-3 py-1 rounded-full mr-1 items-center justify-center bg-green-50">
+                      <Text
+                        className="text-xs font-bold text-green-600"
+                        numberOfLines={1}
+                      >
+                        {item.reportCount} Report
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color="#cbd5e1"
+                    />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }

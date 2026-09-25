@@ -2,19 +2,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    Modal,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../../lib/supabase"; // 💡 Keluar 4 tingkat
 
-export default function PatrolDetailScreen() {
+export default function MemberLocationDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+
+  // Tangkap locationId, userId, dan userName
+  const { locationId, userId, userName } = useLocalSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [locationName, setLocationName] = useState("Memuat...");
@@ -23,21 +25,23 @@ export default function PatrolDetailScreen() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchSpecificReports = async () => {
+      if (!locationId || !userId) return;
       setLoading(true);
 
+      // 1. Ambil Nama Lokasinya
       const { data: locData } = await supabase
         .from("patrol_locations")
         .select("name")
-        .eq("id", id)
+        .eq("id", locationId)
         .single();
 
       if (locData) setLocationName(locData.name);
 
-      const now = new Date();
-      const todayDateOnly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const todayDateOnly = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
 
-      const { data: reports } = await supabase
+      // 2. Tarik Laporan yang memfilter userId DAN patrolLocationId
+      const { data: reports, error } = await supabase
         .from("patrols")
         .select(
           `
@@ -45,31 +49,39 @@ export default function PatrolDetailScreen() {
           checkInTime, 
           status, 
           description,
-          patrol_evidence(imageUrl)
+          patrol_evidence ( imageUrl )
         `,
         )
-        .eq("patrolLocationId", id)
+        .eq("userId", userId) // 💡 Kunci 1: Hanya punya si Mobile Test
+        .eq("patrolLocationId", locationId) // 💡 Kunci 2: Hanya di Head Office
         .eq("date", todayDateOnly)
         .order("checkInTime", { ascending: false });
 
       if (reports) {
-        const formatted = reports.map((r) => ({
-          id: r.id,
-          time: new Date(r.checkInTime).toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          status: r.status,
-          note: r.description || "Tidak ada catatan.",
-          photos: r.patrol_evidence.map((e: any) => e.imageUrl),
-        }));
+        const formatted = reports.map((r: any) => {
+          return {
+            id: r.id,
+            time: new Date(r.checkInTime).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            }),
+            status: r.status,
+            note: r.description || "Tidak ada catatan.",
+            photos: r.patrol_evidence
+              ? r.patrol_evidence.map((e: any) => e.imageUrl)
+              : [],
+          };
+        });
         setReportHistory(formatted);
       }
+
+      if (error) console.error("Error fetch laporan spesifik:", error);
       setLoading(false);
     };
 
-    fetchData();
-  }, [id]);
+    fetchSpecificReports();
+  }, [locationId, userId]);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -85,10 +97,11 @@ export default function PatrolDetailScreen() {
             <Ionicons name="arrow-back" size={20} color="#334155" />
           </TouchableOpacity>
           <Text className="text-xl font-bold text-slate-800">
-            Detail Laporan
+            Detail Pengecekan
           </Text>
         </View>
 
+        {/* INFO LOKASI & NAMA ORANGNYA */}
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
           <View className="flex-row items-center mb-2">
             <View className="w-8 h-8 rounded-full bg-blue-100 items-center justify-center mr-3">
@@ -98,21 +111,22 @@ export default function PatrolDetailScreen() {
               {locationName}
             </Text>
           </View>
+          <Text className="text-slate-500 text-sm ml-11">
+            Dilaporkan oleh:{" "}
+            <Text className="font-bold text-slate-700">{userName}</Text>
+          </Text>
         </View>
 
         <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
-          Riwayat Pengecekan Hari Ini ({reportHistory.length})
+          Riwayat Hari Ini ({reportHistory.length})
         </Text>
 
         {loading ? (
           <ActivityIndicator size="small" color="#3b82f6" />
         ) : reportHistory.length === 0 ? (
           <View className="bg-white rounded-2xl p-8 items-center shadow-sm border border-slate-100">
-            <View className="w-20 h-20 bg-slate-50 rounded-full items-center justify-center mb-4">
-              <Ionicons name="folder-open-outline" size={40} color="#cbd5e1" />
-            </View>
-            <Text className="text-slate-700 text-lg font-bold">
-              Belum Ada Laporan Hari Ini
+            <Text className="text-slate-400 text-sm text-center">
+              Belum ada laporan spesifik.
             </Text>
           </View>
         ) : (
@@ -157,27 +171,21 @@ export default function PatrolDetailScreen() {
                       key={index}
                       activeOpacity={0.8}
                       onPress={() => setSelectedImage(photo)}
-                      className="w-32 h-32 bg-slate-100 rounded-xl mr-3 items-center justify-center border border-slate-200 overflow-hidden"
+                      className="w-32 h-32 bg-slate-100 rounded-xl mr-3 overflow-hidden border border-slate-200"
                     >
                       {photo ? (
                         <Image
                           source={{ uri: photo }}
                           className="w-full h-full"
                           resizeMode="cover"
-                          onError={(e) =>
-                            console.log(
-                              "Gagal load gambar:",
-                              e.nativeEvent.error,
-                            )
-                          }
                         />
                       ) : (
-                        <>
+                        <View className="flex-1 items-center justify-center">
                           <Ionicons name="image" size={28} color="#94a3b8" />
                           <Text className="text-slate-400 text-[10px] mt-2">
                             Bukti {index + 1}
                           </Text>
-                        </>
+                        </View>
                       )}
                     </TouchableOpacity>
                   ))}
@@ -195,16 +203,14 @@ export default function PatrolDetailScreen() {
         )}
       </ScrollView>
 
-      {/* 💡 MODAL PREVIEW GAMBAR FULLSCREEN (DIBIKIN SEMI-TRANSPARAN) */}
+      {/* MODAL ZOOM GAMBAR */}
       <Modal
         visible={!!selectedImage}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setSelectedImage(null)}
       >
-        {/* 💡 PERBAIKAN: bg-slate-900/70 ngasih efek gelap tapi masih tembus pandang ke belakang */}
         <View className="flex-1 bg-slate-900/70 justify-center items-center">
-          {/* Tombol Close */}
           <TouchableOpacity
             onPress={() => setSelectedImage(null)}
             className="absolute top-12 right-5 w-10 h-10 bg-white/20 rounded-full items-center justify-center z-50 border border-white/30"
@@ -212,7 +218,6 @@ export default function PatrolDetailScreen() {
             <Ionicons name="close" size={24} color="white" />
           </TouchableOpacity>
 
-          {/* Gambar Fullscreen */}
           {selectedImage && (
             <Image
               source={{ uri: selectedImage }}

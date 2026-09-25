@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Path disesuaikan dengan posisi file ini
+import { supabase } from "../../lib/supabase";
 
 export default function MemberReportsScreen() {
   const router = useRouter();
@@ -33,10 +33,11 @@ export default function MemberReportsScreen() {
 
       if (!myProfile?.siteId) return;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Mulai dari jam 00:00 hari ini
+      // Ambil tanggal hari ini format YYYY-MM-DD
+      const now = new Date();
+      const todayDateOnly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-      // 2. Tarik Total Titik Pengecekan Patroli berdasarkan Site saat ini
+      // 2. Tarik Total Titik Pengecekan Patroli
       const { data: locationsData } = await supabase
         .from("patrol_locations")
         .select("id")
@@ -45,112 +46,65 @@ export default function MemberReportsScreen() {
       const totalPoints = locationsData?.length || 0;
       setTotalLocations(totalPoints);
 
-      // 3. Tarik Data Utama: Semua User di Site ini beserta Pattern Jadwalnya (Nyontek Absen)
-      const { data: usersData, error: usersError } = await supabase
+      // 3. Tarik Data User di Site ini (Kecuali diri sendiri)
+      // 💡 PERBAIKAN: Tarik kolom employeeCode dari database
+      const { data: siteUsers } = await supabase
         .from("users")
-        .select(
-          `
-          id,
-          name,
-          role,
-          employee_pattern_assignments (
-            patternId,
-            startDate,
-            schedule_patterns ( id, name ) 
-          )
-        `,
-        )
+        .select("id, name, employeeCode")
         .eq("siteId", myProfile.siteId)
-        .neq("id", authData.user.id); // Kecualikan diri sendiri
+        .neq("id", authData.user.id);
 
-      if (usersError) throw usersError;
+      if (!siteUsers || siteUsers.length === 0) {
+        setMembersOnDuty([]);
+        return;
+      }
 
-      // 4. Tarik Data Shift Master
-      const { data: shiftsData } = await supabase.from("shifts").select("*");
+      const userIds = siteUsers.map((u) => u.id);
+
+      // 4. Cek Siapa Aja Yang Sudah Absen Masuk Hari Ini
+      const { data: attendancesToday } = await supabase
+        .from("attendances")
+        .select("userId")
+        .eq("date", todayDateOnly)
+        .in("userId", userIds);
+
+      const presentUserIds = [
+        ...new Set(attendancesToday?.map((a) => a.userId) || []),
+      ];
+
+      if (presentUserIds.length === 0) {
+        setMembersOnDuty([]);
+        return;
+      }
 
       // 5. Tarik Data Laporan Patroli khusus HARI INI
-      const { data: patrolsData } = await supabase
+      const { data: patrolsToday } = await supabase
         .from("patrols")
-        .select("userId, locationId")
-        .gte("createdAt", today.toISOString());
+        .select("userId, patrolLocationId")
+        .eq("date", todayDateOnly)
+        .in("userId", presentUserIds);
 
-      // --- LOGIC PERHITUNGAN & SINKRONISASI SHIFT (Sama persis dengan Absen) ---
-      const currentTime = new Date();
-      let processedData: any[] = [];
+      // 6. Mapping Data buat UI
+      const processedData = siteUsers
+        .filter((user) => presentUserIds.includes(user.id))
+        .map((user) => {
+          // Ambil semua laporan milik user ini
+          const userReports =
+            patrolsToday?.filter((p: any) => p.userId === user.id) || [];
 
-      usersData?.forEach((user: any) => {
-        const assignment = user.employee_pattern_assignments?.[0];
-        if (!assignment) return; // Lewati jika tidak punya jadwal
+          // Hitung TITIK UNIK yang sudah dilaporkan pakai Set
+          const uniqueLocationsReported = new Set(
+            userReports.map((p) => p.patrolLocationId),
+          ).size;
 
-        const startDate = new Date(assignment.startDate);
-        const diffTime = Math.abs(today.getTime() - startDate.getTime());
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-        // Modulo Pattern Siklus 8 Hari
-        const cycleDay = diffDays % 8;
-        let shiftHariIni: any = null;
-
-        if (cycleDay === 0 || cycleDay === 1) {
-          shiftHariIni = shiftsData?.find((s) =>
-            s.name.toLowerCase().includes("pagi"),
-          );
-        } else if (cycleDay === 2 || cycleDay === 3) {
-          shiftHariIni = shiftsData?.find((s) =>
-            s.name.toLowerCase().includes("sore"),
-          );
-        } else if (cycleDay === 4 || cycleDay === 5) {
-          shiftHariIni = shiftsData?.find((s) =>
-            s.name.toLowerCase().includes("malam"),
-          );
-        } else {
-          return; // Day Off, skip dari daftar patroli
-        }
-
-        if (!shiftHariIni) return;
-
-        // FILTER JENDELA SHIFT 2 JAM (Sama persis dengan Absen)
-        const [shiftStartHour, shiftStartMinute] =
-          shiftHariIni.startTime.split(":");
-        const shiftStartDate = new Date(today);
-        shiftStartDate.setHours(
-          parseInt(shiftStartHour),
-          parseInt(shiftStartMinute),
-          0,
-          0,
-        );
-
-        const [shiftEndHour, shiftEndMinute] = shiftHariIni.endTime.split(":");
-        const shiftEndDate = new Date(today);
-        shiftEndDate.setHours(
-          parseInt(shiftEndHour),
-          parseInt(shiftEndMinute),
-          0,
-          0,
-        );
-
-        if (shiftEndDate < shiftStartDate)
-          shiftEndDate.setDate(shiftEndDate.getDate() + 1);
-
-        const twoHoursBeforeStart = new Date(
-          shiftStartDate.getTime() - 2 * 60 * 60 * 1000,
-        );
-        if (currentTime < twoHoursBeforeStart || currentTime > shiftEndDate) {
-          return; // Lewati jika di luar radar shift aktif
-        }
-
-        // Hitung real-time jumlah titik yang sudah dilaporkan oleh user ini hari ini
-        const reportedCount =
-          patrolsData?.filter((p: any) => p.userId === user.id).length || 0;
-
-        // Gabungkan data sesuai dengan kebutuhan komponen UI lu Can
-        processedData.push({
-          id: user.id,
-          name: user.name,
-          role: `${user.role || "Anggota"} - ${shiftHariIni.name}`,
-          reported: reportedCount,
-          remaining: Math.max(0, totalPoints - reportedCount),
+          return {
+            id: user.id,
+            name: user.name,
+            employeeCode: user.employeeCode || "-", // 💡 Simpan employeeCode ke state
+            reported: uniqueLocationsReported,
+            remaining: Math.max(0, totalPoints - uniqueLocationsReported),
+          };
         });
-      });
 
       setMembersOnDuty(processedData);
     } catch (error) {
@@ -185,16 +139,16 @@ export default function MemberReportsScreen() {
       {/* Card Ringkasan Info */}
       <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
         <Text className="text-slate-800 text-base font-bold mb-1">
-          Status Shift Pagi
+          Status Personil Hari Ini
         </Text>
         <Text className="text-slate-500 text-sm">
-          {membersOnDuty.length} Personil Standby • Total {totalLocations} Titik
+          {membersOnDuty.length} Personil Hadir • Total {totalLocations} Titik
           Pengecekan
         </Text>
       </View>
 
       <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
-        Daftar Personil
+        Daftar Personil Standby
       </Text>
 
       {/* Loading State & Looping List Anggota */}
@@ -203,7 +157,7 @@ export default function MemberReportsScreen() {
       ) : membersOnDuty.length === 0 ? (
         <View className="bg-white rounded-2xl p-8 items-center justify-center shadow-sm border border-slate-100">
           <Text className="text-slate-400 text-sm text-center">
-            Belum ada personel masuk radar shift patroli saat ini.
+            Belum ada personil yang melakukan Absen Masuk hari ini.
           </Text>
         </View>
       ) : (
@@ -219,7 +173,7 @@ export default function MemberReportsScreen() {
                   pathname: `/patrol/member/${member.id}` as any,
                   params: {
                     name: member.name,
-                    role: member.role,
+                    employeeCode: member.employeeCode, // 💡 Passing ke halaman detail (jika butuh)
                     reported: member.reported,
                     remaining: member.remaining,
                   },
@@ -227,7 +181,7 @@ export default function MemberReportsScreen() {
               }
               className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4"
             >
-              {/* Baris Atas: Nama & Role */}
+              {/* Baris Atas: Nama & Employee Code */}
               <View className="flex-row items-center justify-between mb-4 pb-3 border-b border-slate-100">
                 <View className="flex-row items-center">
                   <View className="w-11 h-11 bg-slate-100 rounded-full items-center justify-center mr-3">
@@ -237,8 +191,9 @@ export default function MemberReportsScreen() {
                     <Text className="text-base font-bold text-slate-800">
                       {member.name}
                     </Text>
-                    <Text className="text-slate-400 text-xs mt-0.5">
-                      {member.role}
+                    {/* 💡 PERBAIKAN: Tampilkan Employee Code di UI */}
+                    <Text className="text-slate-400 text-xs mt-0.5 uppercase tracking-wider">
+                      {member.employeeCode}
                     </Text>
                   </View>
                 </View>

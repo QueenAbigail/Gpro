@@ -28,60 +28,65 @@ export default function HomeScreen() {
   const [sosCooldown, setSosCooldown] = useState(0);
   const [sosToastMessage, setSosToastMessage] = useState<string | null>(null);
 
-  // 📢 State Pengumuman (Dinamis dari Database)
+  // 📢 State Pengumuman
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 1. Fetch data User, Attendance, & Pengumuman (dengan Silent Sync)
   const fetchHomeData = async (isSilent = false) => {
     try {
-      // Hanya tampilkan loading penuh jika BUKAN silent sync dan data user belum ada
       if (!isSilent && !dbUser) {
         setLoading(true);
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       const nowIso = new Date().toISOString();
 
-      // Jalankan query secara paralel untuk kecepatan
-      const [userRes, attendanceRes, announcementsRes, readStatusesRes] = await Promise.all([
-        supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
-        supabase.from("attendances").select("*").eq("userId", user.id).eq("date", new Date().toISOString().split("T")[0]).maybeSingle(),
-        // Fetch 5 pengumuman terbaru yang aktif & belum expired
-        supabase
-          .from("announcements")
-          .select("*")
-          .eq("isActive", true)
-          .or(`expiresAt.is.null,expiresAt.gt.${nowIso}`)
-          .order("createdAt", { ascending: false })
-          .limit(5),
-        // Fetch status baca user ini
-        supabase
-          .from("announcement_read_statuses")
-          .select("announcementId")
-          .eq("userId", user.id)
-      ]);
+      const [userRes, attendanceRes, announcementsRes, readStatusesRes] =
+        await Promise.all([
+          supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
+          supabase
+            .from("attendances")
+            .select("*")
+            .eq("userId", user.id)
+            .eq("date", new Date().toISOString().split("T")[0])
+            .maybeSingle(),
+          supabase
+            .from("announcements")
+            .select("*")
+            .eq("isActive", true)
+            .or(`expiresAt.is.null,expiresAt.gt.${nowIso}`)
+            .order("createdAt", { ascending: false })
+            .limit(5),
+          supabase
+            .from("announcement_read_statuses")
+            .select("announcementId")
+            .eq("userId", user.id),
+        ]);
 
       if (userRes.data) {
         setDbUser(userRes.data);
       }
       setDbAttendance(attendanceRes.data || {});
 
-      // Olah data pengumuman & status dibaca
-      const readSet = new Set(readStatusesRes.data?.map((r) => r.announcementId) || []);
-      const formattedAnnouncements = (announcementsRes.data || []).map((item) => ({
-        id: item.id,
-        title: item.title,
-        date: formatDate(item.createdAt),
-        isRead: readSet.has(item.id),
-      }));
+      const readSet = new Set(
+        readStatusesRes.data?.map((r) => r.announcementId) || [],
+      );
+      const formattedAnnouncements = (announcementsRes.data || []).map(
+        (item) => ({
+          id: item.id,
+          title: item.title,
+          date: formatDate(item.createdAt),
+          isRead: readSet.has(item.id),
+        }),
+      );
 
       setAnnouncements(formattedAnnouncements);
-
     } catch (error: any) {
       console.error("Error fetching home data:", error);
     } finally {
@@ -89,9 +94,10 @@ export default function HomeScreen() {
     }
   };
 
-  // 2. Fetch Badge Count Notifikasi
   const fetchUnreadCount = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     const { count } = await supabase
@@ -103,59 +109,62 @@ export default function HomeScreen() {
     setUnreadCount(count || 0);
   };
 
-  // Helper Format Tanggal Indonesia
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     const d = new Date(dateString);
-    return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+    return d.toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
   };
 
-  // 3. Setup Realtime Listener & Initial Load
+  // 💡 PERBAIKAN STRUKTUR REALTIME SUPABASE
   useEffect(() => {
     const setup = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) await registerForPushNotificationsAsync(user.id);
-
       fetchHomeData(false);
       fetchUnreadCount();
     };
     setup();
 
+    // Inisialisasi dan Subscribe Channel di dalam useEffect
     const channel = supabase
       .channel("home_realtime_channel")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
-        () => fetchUnreadCount()
+        () => fetchUnreadCount(),
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "announcements" },
-        () => fetchHomeData(true)
+        () => fetchHomeData(true),
       )
       .subscribe();
 
+    // 💡 CLEANUP WAJIB: Hancurkan channel saat komponen di-unmount/ditinggalkan
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
 
-  // Clear Cooldown Timer
   useEffect(() => {
     return () => {
       if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
     };
   }, []);
 
-  // 4. Silent Re-fetch data saat layar difokuskan kembali
   useFocusEffect(
     useCallback(() => {
       fetchHomeData(true);
       fetchUnreadCount();
-    }, [])
+    }, []),
   );
 
-  // 5. Toast Timer
   useEffect(() => {
     if (params?.showToast === "success") {
       setIsSuccessToastVisible(true);
@@ -164,10 +173,11 @@ export default function HomeScreen() {
         router.setParams({ showToast: undefined } as any);
       }, 2000);
     }
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [params?.showToast]);
 
-  // 🆘 FUNGSI PENGIRIMAN SOS
   const handleTriggerSOS = async () => {
     if (isSendingSos || sosCooldown > 0) return;
 
@@ -185,7 +195,10 @@ export default function HomeScreen() {
         .eq("siteId", dbUser.siteId);
 
       if (fetchUsersError || !siteUsers || siteUsers.length === 0) {
-        Alert.alert("Sinyal Terkirim", "Tidak ada rekan kerja lain di site ini.");
+        Alert.alert(
+          "Sinyal Terkirim",
+          "Tidak ada rekan kerja lain di site ini.",
+        );
         return;
       }
 
@@ -202,54 +215,56 @@ export default function HomeScreen() {
 
       if (insertError) throw insertError;
 
-      setSosToastMessage("Sinyal Darurat SOS berhasil dikirim ke seluruh tim site!");
+      setSosToastMessage(
+        "Sinyal Darurat SOS berhasil dikirim ke seluruh tim site!",
+      );
       setTimeout(() => setSosToastMessage(null), 3500);
 
       setSosCooldown(15);
       cooldownTimerRef.current = setInterval(() => {
         setSosCooldown((prev) => {
           if (prev <= 1) {
-            if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+            if (cooldownTimerRef.current)
+              clearInterval(cooldownTimerRef.current);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-
     } catch (error: any) {
       console.error("Error triggering SOS:", error);
-      Alert.alert("Gagal Pengiriman SOS", error.message || "Gagal mengirimkan notifikasi darurat.");
+      Alert.alert(
+        "Gagal Pengiriman SOS",
+        error.message || "Gagal mengirimkan notifikasi darurat.",
+      );
     } finally {
       setIsSendingSos(false);
     }
   };
 
-  // 📢 FUNGSI BUKA PENGUMUMAN & SIMPAN STATUS DIBACA
   const handleOpenAnnouncement = async (id: string, isRead: boolean) => {
     if (!isRead) {
       setAnnouncements((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
+        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item)),
       );
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
-        await supabase
-          .from("announcement_read_statuses")
-          .insert({
-            announcementId: id,
-            userId: user.id,
-            readAt: new Date().toISOString(),
-          });
+        await supabase.from("announcement_read_statuses").insert({
+          announcementId: id,
+          userId: user.id,
+          readAt: new Date().toISOString(),
+        });
       }
     }
-
     router.push(`/beranda/announcement/${id}` as any);
   };
 
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
 
-  // Priority foto: kolom avatar -> kolom photoUrl -> UI Avatars Fallback
   const userPhotoUri =
     dbUser?.avatar ||
     dbUser?.photoUrl ||
@@ -280,8 +295,12 @@ export default function HomeScreen() {
             <Ionicons name="checkmark-circle" size={20} color="#10b981" />
           </View>
           <View className="flex-1">
-            <Text className="text-slate-800 font-bold text-sm">Berhasil masuk!</Text>
-            <Text className="text-slate-400 text-xs">Selamat bekerja kembali.</Text>
+            <Text className="text-slate-800 font-bold text-sm">
+              Berhasil masuk!
+            </Text>
+            <Text className="text-slate-400 text-xs">
+              Selamat bekerja kembali.
+            </Text>
           </View>
         </View>
       )}
@@ -298,7 +317,11 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <ScrollView className="flex-1 pt-14 px-5" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView
+        className="flex-1 pt-14 px-5"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+      >
         {/* Header */}
         <View className="flex-row justify-between items-center mb-8">
           <View className="flex-row items-center">
@@ -307,13 +330,17 @@ export default function HomeScreen() {
               className="w-12 h-12 rounded-full mr-3 border-2 border-white shadow-sm"
             />
             <View>
-              <Text className="text-gray-600 text-sm font-medium">Selamat Pagi,</Text>
-              <Text className="text-xl font-extrabold text-gray-950">{fullName}</Text>
+              <Text className="text-gray-600 text-sm font-medium">
+                Selamat Pagi,
+              </Text>
+              <Text className="text-xl font-extrabold text-gray-950">
+                {fullName}
+              </Text>
             </View>
           </View>
-          
-          <TouchableOpacity 
-            onPress={() => router.push("/profile/notifications")} 
+
+          <TouchableOpacity
+            onPress={() => router.push("/profile/notifications")}
             className="relative bg-white p-2 rounded-full shadow-sm border border-gray-200"
           >
             <Ionicons name="notifications-outline" size={22} color="#1f2937" />
@@ -330,18 +357,36 @@ export default function HomeScreen() {
         {/* Kehadiran */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
           <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-gray-800 text-base font-bold">Status Kehadiran</Text>
-            <View className="bg-sky-50 px-3 py-1 rounded-full"><Text className="text-blue-600 font-semibold text-xs">{new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}</Text></View>
+            <Text className="text-gray-800 text-base font-bold">
+              Status Kehadiran
+            </Text>
+            <View className="bg-sky-50 px-3 py-1 rounded-full">
+              <Text className="text-blue-600 font-semibold text-xs">
+                {new Date().toLocaleDateString("id-ID", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </Text>
+            </View>
           </View>
           <View className="flex-row justify-between items-center">
             <View>
               <Text className="text-gray-500 text-xs mb-1">Jam Masuk</Text>
-              <Text className={`text-3xl font-extrabold ${jamMasuk ? "text-gray-950" : "text-gray-400"}`}>{jamMasuk || "--:--"}</Text>
+              <Text
+                className={`text-3xl font-extrabold ${jamMasuk ? "text-gray-950" : "text-gray-400"}`}
+              >
+                {jamMasuk || "--:--"}
+              </Text>
             </View>
             <View className="h-10 w-[1px] bg-gray-200" />
             <View className="items-end">
               <Text className="text-gray-500 text-xs mb-1">Jam Pulang</Text>
-              <Text className={`text-3xl font-extrabold ${jamPulang ? "text-gray-950" : "text-gray-400"}`}>{jamPulang || "--:--"}</Text>
+              <Text
+                className={`text-3xl font-extrabold ${jamPulang ? "text-gray-950" : "text-gray-400"}`}
+              >
+                {jamPulang || "--:--"}
+              </Text>
             </View>
           </View>
         </View>
@@ -359,7 +404,12 @@ export default function HomeScreen() {
             <ActivityIndicator size="small" color="#ffffff" />
           ) : (
             <>
-              <Ionicons name="warning" size={24} color="#ffffff" className="mr-2" />
+              <Ionicons
+                name="warning"
+                size={24}
+                color="#ffffff"
+                className="mr-2"
+              />
               <Text className="text-white font-black text-lg tracking-wider ml-2">
                 {sosCooldown > 0 ? `TUNGGU (${sosCooldown}s)` : "SOS EMERGENCY"}
               </Text>
@@ -369,33 +419,83 @@ export default function HomeScreen() {
 
         {/* Menu Utama */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6">
-          <Text className="text-gray-900 font-bold text-lg mb-6">Menu Utama</Text>
+          <Text className="text-gray-900 font-bold text-lg mb-6">
+            Menu Utama
+          </Text>
           <View className="flex-row flex-wrap items-start">
-            <TouchableOpacity onPress={() => router.push("/beranda/absen/masuk")} className="w-1/4 items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2"><Ionicons name="log-in" size={24} color="#3b82f6" /></View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">Absen{"\n"}Masuk</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/absen/masuk")}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+                <Ionicons name="log-in" size={24} color="#3b82f6" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Absen{"\n"}Masuk
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/beranda/absen/pulang")} className="w-1/4 items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2"><Ionicons name="log-out" size={24} color="#3b82f6" /></View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">Absen{"\n"}Pulang</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/absen/pulang")}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-2">
+                <Ionicons name="log-out" size={24} color="#3b82f6" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Absen{"\n"}Pulang
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/beranda/bko" as any)} className="w-1/4 items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2"><Ionicons name="briefcase" size={24} color="#f59e0b" /></View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">Ambil{"\n"}Backup</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/bko" as any)}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-amber-50 items-center justify-center mb-2">
+                <Ionicons name="briefcase" size={24} color="#f59e0b" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Ambil{"\n"}Backup
+              </Text>
             </TouchableOpacity>
             {dbUser?.role !== "STAFF" && (
-              <TouchableOpacity onPress={() => router.push("/beranda/absen-anggota" as any)} className="w-1/4 items-center mb-4">
-                <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2"><Ionicons name="people" size={24} color="#8b5cf6" /></View>
-                <Text className="text-gray-600 text-xs text-center leading-tight">Absen{"\n"}Anggota</Text>
+              <TouchableOpacity
+                onPress={() => router.push("/beranda/absen-anggota" as any)}
+                className="w-1/4 items-center mb-4"
+              >
+                <View className="w-12 h-12 rounded-full bg-violet-50 items-center justify-center mb-2">
+                  <Ionicons name="people" size={24} color="#8b5cf6" />
+                </View>
+                <Text className="text-gray-600 text-xs text-center leading-tight">
+                  Absen{"\n"}Anggota
+                </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={() => router.push("/beranda/payroll/payroll-page" as any)} className="w-1/4 items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-green-50 items-center justify-center mb-2"><Ionicons name="receipt" size={24} color="#59dd7a" /></View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">Slip{"\n"}Gaji</Text>
+            <TouchableOpacity
+              onPress={() =>
+                router.push("/beranda/payroll/payroll-page" as any)
+              }
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-green-50 items-center justify-center mb-2">
+                <Ionicons name="receipt" size={24} color="#59dd7a" />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Slip{"\n"}Gaji
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/beranda/employee/employee" as any)} className="w-1/4 items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-teal-50 items-center justify-center mb-2"><Ionicons name="people-circle-outline" size={24} color="#14b8a6" /></View>
-              <Text className="text-gray-600 text-xs text-center leading-tight">Data{"\n"}Karyawan</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/employee/employee" as any)}
+              className="w-1/4 items-center mb-4"
+            >
+              <View className="w-12 h-12 rounded-full bg-teal-50 items-center justify-center mb-2">
+                <Ionicons
+                  name="people-circle-outline"
+                  size={24}
+                  color="#14b8a6"
+                />
+              </View>
+              <Text className="text-gray-600 text-xs text-center leading-tight">
+                Data{"\n"}Karyawan
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -404,30 +504,40 @@ export default function HomeScreen() {
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100">
           <View className="flex-row justify-between items-center mb-4">
             <Text className="text-gray-900 font-bold text-lg">Pengumuman</Text>
-            <TouchableOpacity onPress={() => router.push("/beranda/announcement" as any)}>
-              <Text className="text-sky-600 text-xs font-semibold">Lihat Semua</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/beranda/announcement" as any)}
+            >
+              <Text className="text-sky-600 text-xs font-semibold">
+                Lihat Semua
+              </Text>
             </TouchableOpacity>
           </View>
 
           {announcements.length === 0 ? (
             <View className="py-6 items-center">
               <Ionicons name="megaphone-outline" size={32} color="#cbd5e1" />
-              <Text className="text-gray-400 text-xs mt-2">Belum ada pengumuman terbaru</Text>
+              <Text className="text-gray-400 text-xs mt-2">
+                Belum ada pengumuman terbaru
+              </Text>
             </View>
           ) : (
             announcements.map((item, index) => (
-              <TouchableOpacity 
-                key={item.id} 
+              <TouchableOpacity
+                key={item.id}
                 onPress={() => handleOpenAnnouncement(item.id, item.isRead)}
-                className={`flex-row items-center py-3 ${index !== announcements.length - 1 ? 'border-b border-gray-100' : ''}`}
+                className={`flex-row items-center py-3 ${index !== announcements.length - 1 ? "border-b border-gray-100" : ""}`}
               >
                 <View className="w-10 h-10 rounded-full bg-sky-50 items-center justify-center mr-3">
-                  <Ionicons name="megaphone-outline" size={20} color="#0ea5e9" />
+                  <Ionicons
+                    name="megaphone-outline"
+                    size={20}
+                    color="#0ea5e9"
+                  />
                 </View>
-                
+
                 <View className="flex-1">
-                  <Text 
-                    className={`text-sm mb-1 ${item.isRead ? 'text-gray-600 font-medium' : 'text-gray-900 font-bold'}`}
+                  <Text
+                    className={`text-sm mb-1 ${item.isRead ? "text-gray-600 font-medium" : "text-gray-900 font-bold"}`}
                     numberOfLines={1}
                   >
                     {item.title}
