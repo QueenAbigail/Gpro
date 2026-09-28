@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+// 💡 TAMBAHIN useFocusEffect dan useCallback di import
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -8,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../../lib/supabase"; // Sesuaikan path ini
+import { supabase } from "../../lib/supabase";
 
 export default function LeaveScreen() {
   const router = useRouter();
@@ -16,6 +17,7 @@ export default function LeaveScreen() {
   const [loading, setLoading] = useState(true);
 
   const fetchLeaves = async () => {
+    setLoading(true);
     try {
       const {
         data: { user },
@@ -25,7 +27,7 @@ export default function LeaveScreen() {
       const { data, error } = await supabase
         .from("leaves")
         .select("*")
-        .eq("userId", user.id) // Pastikan filter ke user yang login
+        .eq("userId", user.id)
         .order("createdAt", { ascending: false })
         .range(0, 3); // Hanya ambil 4 data terakhir
 
@@ -38,11 +40,14 @@ export default function LeaveScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchLeaves();
-  }, []);
+  // 💡 PERBAIKAN FATAL: Ganti useEffect jadi useFocusEffect
+  // Biar otomatis ke-refresh tiap balik dari halaman Form Tukar Shift/Cuti
+  useFocusEffect(
+    useCallback(() => {
+      fetchLeaves();
+    }, []),
+  );
 
-  // Helper untuk styling warna status
   const getStatusStyle = (status: string) => {
     switch (status) {
       case "Disetujui":
@@ -56,21 +61,21 @@ export default function LeaveScreen() {
     }
   };
 
-  // Helper untuk icon
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "Sakit":
         return "medkit";
+      case "TUKAR_SHIFT": // 💡 PERBAIKAN: Sesuaikan dengan string yang kita save di DB ("TUKAR_SHIFT")
       case "Tukar Shift":
         return "swap-horizontal";
       case "Izin":
+      case "Cuti":
         return "document-text";
       default:
         return "document-text";
     }
   };
 
-  // Helper format tanggal
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("id-ID", {
       day: "numeric",
@@ -85,17 +90,15 @@ export default function LeaveScreen() {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100 }}
     >
-      {/* 🚀 HEADER UTAMA HALAMAN PERIZINAN */}
       <View className="mb-6">
         <Text className="text-2xl font-extrabold text-slate-950">
           Perizinan
         </Text>
         <Text className="text-slate-500 text-xs mt-1">
-          Buat pengajuan sakit, izin, atau tukar shift
+          Buat pengajuan sakit, cuti, atau tukar shift
         </Text>
       </View>
 
-      {/* SECTION: BUAT PENGAJUAN BARU */}
       <Text className="text-slate-800 font-bold text-lg mb-4">
         Buat Pengajuan Baru
       </Text>
@@ -133,7 +136,6 @@ export default function LeaveScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* SECTION: RIWAYAT PENGAJUAN */}
       <View className="flex-row justify-between items-center mb-4">
         <Text className="text-slate-800 font-bold text-lg">
           Riwayat Pengajuan
@@ -148,12 +150,25 @@ export default function LeaveScreen() {
       {loading ? (
         <ActivityIndicator size="small" color="#3b82f6" className="py-4" />
       ) : history.length === 0 ? (
-        <Text className="text-slate-400 text-center mt-4 text-sm">
-          Belum ada riwayat pengajuan.
-        </Text>
+        <View className="bg-white rounded-2xl p-8 items-center border border-slate-100 shadow-sm">
+          <Ionicons
+            name="folder-open-outline"
+            size={40}
+            color="#cbd5e1"
+            className="mb-3"
+          />
+          <Text className="text-slate-400 text-center text-sm">
+            Belum ada riwayat pengajuan.
+          </Text>
+        </View>
       ) : (
         history.map((item) => {
           const statusStyle = getStatusStyle(item.status);
+
+          // 💡 Biar tampilannya lebih enak dibaca (TUKAR_SHIFT jadi Tukar Shift)
+          const displayLeaveType =
+            item.leaveType === "TUKAR_SHIFT" ? "Tukar Shift" : item.leaveType;
+
           return (
             <TouchableOpacity
               key={item.id}
@@ -168,7 +183,7 @@ export default function LeaveScreen() {
               </View>
               <View className="flex-1">
                 <Text className="text-slate-800 font-bold mb-1">
-                  {item.leaveType}
+                  {displayLeaveType}
                 </Text>
                 <Text className="text-slate-500 text-xs mb-1">
                   {formatDate(item.startDate)}

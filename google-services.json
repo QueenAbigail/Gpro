@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "43998887464",
+    "project_id": "globalpro-b78a7",
+    "storage_bucket": "globalpro-b78a7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43998887464:android:e99f23b1a13fddc3167f1d",
+        "android_client_info": {
+          "package_name": "com.promaxima.globalpromobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQrjxEJOkcf6TyoB7zGS89vnfKQM7Y_dc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

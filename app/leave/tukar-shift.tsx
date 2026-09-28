@@ -24,24 +24,26 @@ interface ModalConfig {
 export default function TukarShiftScreen() {
   const router = useRouter();
 
-  // State untuk form tukar shift
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  // Form states
   const [myShiftDate, setMyShiftDate] = useState<Date>(new Date());
   const [myShiftType, setMyShiftType] = useState("");
+
   const [replacementUser, setReplacementUser] = useState<{
     id: string;
     name: string;
   } | null>(null);
   const [targetShiftDate, setTargetShiftDate] = useState<Date>(new Date());
   const [targetShiftType, setTargetShiftType] = useState("");
-  const [reason, setReason] = useState("");
 
+  const [reason, setReason] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [coworkers, setCoworkers] = useState<any[]>([]);
 
-  // State UI Modals
-  const [showMyDatePicker, setShowMyDatePicker] = useState(false);
-  const [showTargetDatePicker, setShowTargetDatePicker] = useState(false);
-  const [showCoworkerModal, setShowCoworkerModal] = useState(false);
+  // 💡 STATE HYBRID (Auto vs Manual)
+  const [isMyShiftManual, setIsMyShiftManual] = useState(false);
+  const [isTargetShiftManual, setIsTargetShiftManual] = useState(false);
   const [showShiftModal, setShowShiftModal] = useState<{
     visible: boolean;
     target: "my" | "target";
@@ -52,7 +54,17 @@ export default function TukarShiftScreen() {
     "Shift Middle",
     "Shift Sore",
     "Shift Malam",
+    "Libur (Day Off)",
   ];
+
+  // UI Modals
+  const [showMyDatePicker, setShowMyDatePicker] = useState(false);
+  const [showTargetDatePicker, setShowTargetDatePicker] = useState(false);
+  const [showCoworkerModal, setShowCoworkerModal] = useState(false);
+
+  const [isCalculatingMyShift, setIsCalculatingMyShift] = useState(false);
+  const [isCalculatingTargetShift, setIsCalculatingTargetShift] =
+    useState(false);
 
   const [modalConfig, setModalConfig] = useState<ModalConfig>({
     visible: false,
@@ -61,14 +73,13 @@ export default function TukarShiftScreen() {
     type: "info",
   });
 
-  // Fetch teman 1 site dari Supabase saat komponen diload
   useEffect(() => {
-    const fetchCoworkers = async () => {
+    const initData = async () => {
       try {
         const { data: authData } = await supabase.auth.getUser();
         if (!authData.user) return;
+        setMyUserId(authData.user.id);
 
-        // Ambil siteId user
         const { data: myProfile } = await supabase
           .from("users")
           .select("siteId")
@@ -76,21 +87,93 @@ export default function TukarShiftScreen() {
           .single();
 
         if (myProfile?.siteId) {
-          // Cari teman-teman 1 site
           const { data: friends } = await supabase
             .from("users")
             .select("id, name, employeeCode, role")
             .eq("siteId", myProfile.siteId)
             .neq("id", authData.user.id);
-
           if (friends) setCoworkers(friends);
         }
       } catch (error) {
-        console.error("Gagal load rekan kerja:", error);
+        console.error("Gagal load data awal:", error);
       }
     };
-    fetchCoworkers();
+    initData();
   }, []);
+
+  const getAutoShift = async (userId: string, targetDate: Date) => {
+    try {
+      const { data: assignment } = await supabase
+        .from("employee_pattern_assignments")
+        .select("startDate")
+        .eq("userId", userId)
+        .maybeSingle();
+
+      if (!assignment?.startDate) return "NOT_FOUND"; // 💡 Kembalikan NOT_FOUND jika kosong
+
+      const target = new Date(targetDate);
+      target.setHours(0, 0, 0, 0);
+
+      const start = new Date(assignment.startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const diffTime = target.getTime() - start.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) return "NOT_FOUND";
+
+      const cycleDay = diffDays % 8;
+      if (cycleDay === 0 || cycleDay === 1) return "Shift Pagi";
+      if (cycleDay === 2 || cycleDay === 3) return "Shift Sore";
+      if (cycleDay === 4 || cycleDay === 5) return "Shift Malam";
+      return "Libur (Day Off)";
+    } catch (error) {
+      console.error("Error ngitung shift:", error);
+      return "NOT_FOUND";
+    }
+  };
+
+  // 💡 Kalkulasi Shift Pemohon
+  useEffect(() => {
+    if (!myUserId) return;
+    const fetchMyShift = async () => {
+      setIsCalculatingMyShift(true);
+      const shift = await getAutoShift(myUserId, myShiftDate);
+
+      if (shift === "NOT_FOUND") {
+        setIsMyShiftManual(true);
+        setMyShiftType(""); // Kosongin biar muncul placeholder
+      } else {
+        setIsMyShiftManual(false);
+        setMyShiftType(shift);
+      }
+      setIsCalculatingMyShift(false);
+    };
+    fetchMyShift();
+  }, [myShiftDate, myUserId]);
+
+  // 💡 Kalkulasi Shift Pengganti
+  useEffect(() => {
+    if (!replacementUser?.id) {
+      setIsTargetShiftManual(false);
+      setTargetShiftType("Pilih Rekan Kerja Dahulu");
+      return;
+    }
+    const fetchTargetShift = async () => {
+      setIsCalculatingTargetShift(true);
+      const shift = await getAutoShift(replacementUser.id, targetShiftDate);
+
+      if (shift === "NOT_FOUND") {
+        setIsTargetShiftManual(true);
+        setTargetShiftType("");
+      } else {
+        setIsTargetShiftManual(false);
+        setTargetShiftType(shift);
+      }
+      setIsCalculatingTargetShift(false);
+    };
+    fetchTargetShift();
+  }, [targetShiftDate, replacementUser]);
 
   const showAlert = (
     title: string,
@@ -98,13 +181,7 @@ export default function TukarShiftScreen() {
     type: "success" | "error" | "warning" | "info" = "info",
     onPress?: () => void,
   ) => {
-    setModalConfig({
-      visible: true,
-      title,
-      message,
-      type,
-      onPress,
-    });
+    setModalConfig({ visible: true, title, message, type, onPress });
   };
 
   const formatDate = (date: Date) => {
@@ -116,10 +193,24 @@ export default function TukarShiftScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!myShiftType || !replacementUser || !targetShiftType || !reason) {
+    if (
+      !replacementUser ||
+      !reason.trim() ||
+      !myShiftType ||
+      !targetShiftType
+    ) {
       showAlert(
         "Data Belum Lengkap",
-        "Mohon lengkapi semua kolom form tukar shift sebelum mengirim!",
+        "Pilih rekan kerja pengganti, tentukan jenis shift, dan berikan alasan tukar shift sebelum mengirim.",
+        "warning",
+      );
+      return;
+    }
+
+    if (myShiftType === "Libur (Day Off)") {
+      showAlert(
+        "Tidak Bisa Tukar Shift",
+        "Jadwal asli kamu adalah Libur. Tidak ada jadwal dinas yang bisa ditukar/digantikan.",
         "warning",
       );
       return;
@@ -136,7 +227,7 @@ export default function TukarShiftScreen() {
         leaveType: "TUKAR_SHIFT",
         startDate: formatForDB(myShiftDate),
         endDate: formatForDB(targetShiftDate),
-        reason: reason,
+        reason: reason.trim(),
         status: "Pending",
         replacementUserId: replacementUser.id,
         originalShiftType: myShiftType,
@@ -148,7 +239,9 @@ export default function TukarShiftScreen() {
       setIsLoading(false);
       showAlert(
         "Pengajuan Berhasil",
-        "Pengajuan tukar shift berhasil dikirim! Silakan tunggu konfirmasi HRD/Koordinator.",
+        targetShiftType === "Libur (Day Off)"
+          ? `Pengajuan cover shift berhasil dikirim! Rekan (${replacementUser.name}) bersedia masuk menggantikanmu.`
+          : "Pengajuan barter tukar shift berhasil dikirim! Menunggu konfirmasi rekan dan verifikasi atasan.",
         "success",
         () => router.back(),
       );
@@ -200,7 +293,7 @@ export default function TukarShiftScreen() {
 
   return (
     <View className="flex-1 bg-slate-50">
-      <View className="pt-14 pb-2 px-6 bg-white flex-row items-center">
+      <View className="pt-14 pb-2 px-6 bg-white flex-row items-center border-b border-slate-100">
         <TouchableOpacity
           onPress={() => router.back()}
           className="w-10 h-10 bg-slate-100 rounded-full items-center justify-center mr-3 active:bg-slate-200"
@@ -210,7 +303,7 @@ export default function TukarShiftScreen() {
         <View className="flex-1">
           <Text className="text-2xl font-bold text-slate-900">Tukar Shift</Text>
           <Text className="text-slate-500 text-xs mt-0.5">
-            Ajukan penggantian jadwal dengan rekan kerja
+            Ajukan pergantian jadwal / cover tugas dengan rekan kerja
           </Text>
         </View>
       </View>
@@ -219,23 +312,24 @@ export default function TukarShiftScreen() {
         className="flex-1 px-6 pt-6"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* Section 1: Jadwal Kamu */}
+        {/* Section 1: Jadwal Pemohon */}
         <Text className="text-slate-800 font-bold mb-3 ml-1 text-base">
           Jadwal Shift Kamu
         </Text>
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
           <View className="mb-4">
             <Text className="text-slate-500 text-xs font-semibold mb-2">
-              Tanggal Shift Kamu
+              Tanggal Shift yang Ditinggal
             </Text>
             <TouchableOpacity
               onPress={() => setShowMyDatePicker(true)}
               className="flex-row items-center border border-slate-200 rounded-xl px-3 py-4 bg-slate-50"
             >
               <Ionicons name="calendar-outline" size={18} color="#64748b" />
-              <Text className="flex-1 ml-3 text-slate-800 text-sm">
+              <Text className="flex-1 ml-3 text-slate-800 font-semibold text-sm">
                 {formatDate(myShiftDate)}
               </Text>
+              <Text className="text-blue-500 text-xs font-bold">UBAH</Text>
             </TouchableOpacity>
             {showMyDatePicker && (
               <DateTimePicker
@@ -249,31 +343,60 @@ export default function TukarShiftScreen() {
               />
             )}
           </View>
+
           <View>
             <Text className="text-slate-500 text-xs font-semibold mb-2">
-              Jenis Shift Asli
+              Jenis Shift Asli {isMyShiftManual ? "(Isi Manual)" : "(Otomatis)"}
             </Text>
             <TouchableOpacity
+              disabled={!isMyShiftManual}
               onPress={() => setShowShiftModal({ visible: true, target: "my" })}
-              className="flex-row items-center border border-slate-200 rounded-xl px-3 py-4 bg-slate-50"
+              className={`flex-row items-center border rounded-xl px-3 py-4 ${
+                isMyShiftManual
+                  ? "bg-white border-blue-200"
+                  : "bg-slate-100 border-slate-100"
+              }`}
             >
-              <Ionicons name="time-outline" size={18} color="#64748b" />
-              <Text
-                className={`flex-1 ml-3 text-sm ${myShiftType ? "text-slate-800" : "text-slate-400"}`}
-              >
-                {myShiftType || "Pilih Jenis Shift..."}
-              </Text>
+              <Ionicons
+                name="time-outline"
+                size={18}
+                color={isMyShiftManual ? "#3b82f6" : "#94a3b8"}
+              />
+              {isCalculatingMyShift ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#3b82f6"
+                  className="ml-3"
+                />
+              ) : (
+                <View className="flex-1 ml-3 flex-row items-center justify-between">
+                  <Text
+                    className={`text-sm font-bold ${
+                      !myShiftType
+                        ? "text-slate-400"
+                        : myShiftType === "Libur (Day Off)"
+                          ? "text-rose-500"
+                          : "text-slate-800"
+                    }`}
+                  >
+                    {myShiftType || "Tap untuk isi (Belum ada jadwal)"}
+                  </Text>
+                  {isMyShiftManual && (
+                    <Ionicons name="chevron-down" size={16} color="#3b82f6" />
+                  )}
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Section 2: Rekan Kerja */}
+        {/* Section 2: Rekan Kerja Pengganti */}
         <Text className="text-slate-800 font-bold mb-3 ml-1 text-base">
           Rekan Kerja Pengganti
         </Text>
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
           <Text className="text-slate-500 text-xs font-semibold mb-2">
-            Pilih Rekan 1 Area/Site
+            Pilih Rekan 1 Site
           </Text>
           <TouchableOpacity
             onPress={() => setShowCoworkerModal(true)}
@@ -281,30 +404,34 @@ export default function TukarShiftScreen() {
           >
             <Ionicons name="person-outline" size={18} color="#64748b" />
             <Text
-              className={`flex-1 ml-3 text-sm ${replacementUser ? "text-slate-800 font-semibold" : "text-slate-400"}`}
+              className={`flex-1 ml-3 text-sm ${
+                replacementUser ? "text-slate-800 font-bold" : "text-slate-400"
+              }`}
             >
               {replacementUser ? replacementUser.name : "Pilih Karyawan..."}
             </Text>
+            <Ionicons name="chevron-down" size={18} color="#94a3b8" />
           </TouchableOpacity>
         </View>
 
         {/* Section 3: Jadwal Tujuan */}
         <Text className="text-slate-800 font-bold mb-3 ml-1 text-base">
-          Jadwal Shift Tukaran
+          Jadwal Rekan Pengganti
         </Text>
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
           <View className="mb-4">
             <Text className="text-slate-500 text-xs font-semibold mb-2">
-              Tanggal Shift Tujuan
+              Tanggal Shift Rekan (Samakan bila langsung cover)
             </Text>
             <TouchableOpacity
               onPress={() => setShowTargetDatePicker(true)}
               className="flex-row items-center border border-slate-200 rounded-xl px-3 py-4 bg-slate-50"
             >
               <Ionicons name="calendar-outline" size={18} color="#64748b" />
-              <Text className="flex-1 ml-3 text-slate-800 text-sm">
+              <Text className="flex-1 ml-3 text-slate-800 font-semibold text-sm">
                 {formatDate(targetShiftDate)}
               </Text>
+              <Text className="text-blue-500 text-xs font-bold">UBAH</Text>
             </TouchableOpacity>
             {showTargetDatePicker && (
               <DateTimePicker
@@ -320,32 +447,61 @@ export default function TukarShiftScreen() {
           </View>
           <View>
             <Text className="text-slate-500 text-xs font-semibold mb-2">
-              Jenis Shift Tujuan
+              Jadwal Asli Rekan{" "}
+              {isTargetShiftManual ? "(Isi Manual)" : "(Otomatis)"}
             </Text>
             <TouchableOpacity
+              disabled={!isTargetShiftManual}
               onPress={() =>
                 setShowShiftModal({ visible: true, target: "target" })
               }
-              className="flex-row items-center border border-slate-200 rounded-xl px-3 py-4 bg-slate-50"
+              className={`flex-row items-center border rounded-xl px-3 py-4 ${
+                isTargetShiftManual
+                  ? "bg-white border-blue-200"
+                  : "bg-slate-100 border-slate-100"
+              }`}
             >
-              <Ionicons name="time-outline" size={18} color="#64748b" />
-              <Text
-                className={`flex-1 ml-3 text-sm ${targetShiftType ? "text-slate-800" : "text-slate-400"}`}
-              >
-                {targetShiftType || "Pilih Jenis Shift..."}
-              </Text>
+              <Ionicons
+                name="time-outline"
+                size={18}
+                color={isTargetShiftManual ? "#3b82f6" : "#94a3b8"}
+              />
+              {isCalculatingTargetShift ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#3b82f6"
+                  className="ml-3"
+                />
+              ) : (
+                <View className="flex-1 ml-3 flex-row items-center justify-between">
+                  <Text
+                    className={`text-sm font-bold ${
+                      targetShiftType.includes("Pilih")
+                        ? "text-slate-400"
+                        : targetShiftType === "Libur (Day Off)"
+                          ? "text-amber-600"
+                          : "text-slate-800"
+                    }`}
+                  >
+                    {targetShiftType || "Tap untuk isi (Belum ada jadwal)"}
+                  </Text>
+                  {isTargetShiftManual && (
+                    <Ionicons name="chevron-down" size={16} color="#3b82f6" />
+                  )}
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Section 4: Alasan */}
         <Text className="text-slate-800 font-bold mb-3 ml-1 text-base">
-          Alasan Tukar Shift
+          Alasan Tukar / Cover Shift
         </Text>
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-8">
           <View className="border border-slate-200 rounded-xl px-4 py-3 bg-slate-50 h-28">
             <TextInput
-              placeholder="Berikan alasan yang jelas (misal: Ada keperluan keluarga mendadak)..."
+              placeholder="Berikan alasan yang jelas..."
               placeholderTextColor="#cbd5e1"
               multiline
               textAlignVertical="top"
@@ -359,8 +515,14 @@ export default function TukarShiftScreen() {
         {/* Tombol Submit */}
         <TouchableOpacity
           onPress={handleSubmit}
-          disabled={isLoading}
-          className={`w-full py-4 rounded-2xl items-center flex-row justify-center mb-4 ${isLoading ? "bg-blue-400" : "bg-blue-600 active:bg-blue-700"}`}
+          disabled={
+            isLoading || isCalculatingMyShift || isCalculatingTargetShift
+          }
+          className={`w-full py-4 rounded-2xl items-center flex-row justify-center mb-4 ${
+            isLoading || isCalculatingMyShift || isCalculatingTargetShift
+              ? "bg-blue-400"
+              : "bg-blue-600 active:bg-blue-700"
+          }`}
         >
           {isLoading ? (
             <ActivityIndicator color="white" />
@@ -374,6 +536,46 @@ export default function TukarShiftScreen() {
           )}
         </TouchableOpacity>
       </ScrollView>
+
+      {/* MODAL PILIH JENIS SHIFT MANUAL */}
+      <Modal
+        visible={showShiftModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          setShowShiftModal({ visible: false, target: "my" })
+        }
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-6">
+          <View className="bg-white w-full rounded-3xl p-6">
+            <Text className="text-lg font-bold text-slate-800 mb-4 text-center">
+              Pilih Jenis Shift Manual
+            </Text>
+            <Text className="text-xs text-slate-500 mb-4 text-center">
+              Sistem mendeteksi jadwal belum di-assign oleh Admin. Silakan pilih
+              secara manual.
+            </Text>
+            {shiftOptions.map((opt, i) => (
+              <TouchableOpacity
+                key={i}
+                onPress={() => {
+                  showShiftModal.target === "my"
+                    ? setMyShiftType(opt)
+                    : setTargetShiftType(opt);
+                  setShowShiftModal({ visible: false, target: "my" });
+                }}
+                className="py-4 border-b border-slate-100 items-center"
+              >
+                <Text
+                  className={`font-semibold text-base ${opt === "Libur (Day Off)" ? "text-rose-500" : "text-slate-700"}`}
+                >
+                  {opt}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
 
       {/* MODAL PILIH REKAN KERJA */}
       <Modal
@@ -428,40 +630,6 @@ export default function TukarShiftScreen() {
         </View>
       </Modal>
 
-      {/* MODAL PILIH JENIS SHIFT */}
-      <Modal
-        visible={showShiftModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() =>
-          setShowShiftModal({ visible: false, target: "my" })
-        }
-      >
-        <View className="flex-1 bg-black/50 justify-center items-center px-6">
-          <View className="bg-white w-full rounded-3xl p-6">
-            <Text className="text-lg font-bold text-slate-800 mb-4 text-center">
-              Pilih Jenis Shift
-            </Text>
-            {shiftOptions.map((opt, i) => (
-              <TouchableOpacity
-                key={i}
-                onPress={() => {
-                  showShiftModal.target === "my"
-                    ? setMyShiftType(opt)
-                    : setTargetShiftType(opt);
-                  setShowShiftModal({ visible: false, target: "my" });
-                }}
-                className="py-4 border-b border-slate-100 items-center"
-              >
-                <Text className="text-slate-700 font-semibold text-base">
-                  {opt}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
       {/* MODAL ALERT AESTHETIC */}
       <Modal transparent visible={modalConfig.visible} animationType="fade">
         <View className="flex-1 bg-black/50 justify-center items-center px-6">
@@ -474,7 +642,7 @@ export default function TukarShiftScreen() {
             <Text className="text-slate-800 font-bold text-lg text-center mb-2">
               {modalConfig.title}
             </Text>
-            <Text className="text-slate-400 text-sm text-center mb-6 leading-relaxed px-2">
+            <Text className="text-slate-500 text-sm text-center mb-6 leading-relaxed px-2">
               {modalConfig.message}
             </Text>
             <TouchableOpacity

@@ -25,7 +25,8 @@
         "ACCESS_FINE_LOCATION",
         "CAMERA",
         "POST_NOTIFICATIONS"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
