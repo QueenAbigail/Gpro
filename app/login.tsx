@@ -12,12 +12,8 @@ import {
   View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
-import {
-  handleDeviceVerification
-} from "../lib/device";
+import { handleDeviceVerification } from "../lib/device";
 import { supabase } from "../lib/supabase";
-
-// 💡 IMPORT FUNGSI TRACKER DARI FILE TERPISAH
 import { sendActivityLog } from "../lib/tracker";
 
 const CACHE_KEY_APP_SETTINGS = "@app_system_settings";
@@ -90,7 +86,11 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    // 💡 PERBAIKAN: Hapus spasi "gaib" bawaan iPhone/Copy-Paste dengan .trim()
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
       setErrorMessage("ID dan kata sandi tidak boleh kosong!");
       setIsErrorModalVisible(true);
       return;
@@ -98,41 +98,36 @@ export default function LoginScreen() {
 
     setLoading(true);
 
-    const formattedEmail = email.includes("@") ? email : `${email}@hris.com`;
+    const formattedEmail = cleanEmail.includes("@")
+      ? cleanEmail
+      : `${cleanEmail}@hris.com`;
 
     // Tembak login ke Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email: formattedEmail,
-      password: password,
+      password: cleanPassword,
     });
 
-    // 🛑 SKENARIO 1: ERROR ATAU SESSION GAGAL DIBUAT
     if (error || !data.session) {
       setLoading(false);
       setErrorMessage("ID atau kata sandi tidak sesuai.");
       setIsErrorModalVisible(true);
-      // Panggil fungsi log (tanpa koordinat GPS karena belum dapet)
       await sendActivityLog("FAILED_INVALID_CREDENTIALS", null, formattedEmail);
       return;
     }
 
-    // Ambil token LANGSUNG dari memori hasil login
     const accessToken = data.session.access_token;
     const actualUserEmail = data.user.email || formattedEmail;
 
-    // ✅ SKENARIO 2: LANJUT CEK DEVICE
     const verification = await handleDeviceVerification(data.user.id);
 
-    // 🛑 SKENARIO 3: DEVICE BENTROK
     if (!verification.success) {
-      // Kirim log dengan token
       await sendActivityLog(
         "FAILED_DEVICE_LIMIT",
         accessToken,
         actualUserEmail,
       );
 
-      // Tendang user
       await supabase.auth.signOut();
       setLoading(false);
       setErrorMessage(verification.message || "Perangkat tidak diizinkan.");
@@ -140,7 +135,6 @@ export default function LoginScreen() {
       return;
     }
 
-    // 🎉 SKENARIO 4: LOGIN SUKSES
     await sendActivityLog("SUCCESS", accessToken, actualUserEmail);
 
     setLoading(false);
@@ -213,6 +207,7 @@ export default function LoginScreen() {
                 placeholderTextColor="#9ca3af"
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false} // 💡 PERBAIKAN: Matikan autocorrect biar iPhone gak sok pinter ngubah ID
                 value={email}
                 onChangeText={setEmail}
               />
@@ -235,6 +230,7 @@ export default function LoginScreen() {
                 placeholder="Masukkan kata sandi"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="none"
+                autoCorrect={false} // 💡 PERBAIKAN
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
