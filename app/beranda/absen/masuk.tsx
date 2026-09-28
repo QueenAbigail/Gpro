@@ -15,7 +15,6 @@ import {
 } from "react-native";
 import { captureRef } from "react-native-view-shot";
 
-// 💡 Import semua utilitas yang udah lu pisah
 import { formatDateIndo } from "../../../lib/dateUtils";
 import { compressToWebP } from "../../../lib/imageUtils";
 import { getDistance } from "../../../lib/locationUtils";
@@ -28,7 +27,6 @@ export default function AbsenMasukScreen() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
 
-  // State buat nampung identitas karyawan di Watermark
   const [employeeName, setEmployeeName] = useState<string>("Memuat Nama...");
   const [employeeCode, setEmployeeCode] = useState<string>("-");
 
@@ -100,7 +98,6 @@ export default function AbsenMasukScreen() {
 
       if (data) {
         const formattedHistory = data.map((item) => {
-          // 💡 JARING PENGAMAN: Biar history gak blank kalau ada data tanggal yang nyangkut/null
           let dateString = "-";
           try {
             if (item.date) {
@@ -115,10 +112,13 @@ export default function AbsenMasukScreen() {
           let statusText = "Belum Absen";
 
           if (item.actualCheckIn) {
+            // 💡 PERBAIKAN: Gunakan format jam asli dengan setting timezone lokal HP
             const checkIn = new Date(item.actualCheckIn);
-            const h = checkIn.getHours().toString().padStart(2, "0");
-            const m = checkIn.getMinutes().toString().padStart(2, "0");
-            timeString = `${h}:${m}`;
+            timeString = checkIn.toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            });
             statusText = "Tercatat";
           }
 
@@ -206,7 +206,6 @@ export default function AbsenMasukScreen() {
         await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Gagal mengambil sesi.");
 
-      // Tarik nama dan NIK dari tabel users
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("siteId, allowMobileAttendance, role, name, employeeCode")
@@ -215,7 +214,6 @@ export default function AbsenMasukScreen() {
 
       if (userError) throw userError;
 
-      // Set State buat nampilin di Watermark
       if (userData) {
         setEmployeeName(
           userData.name || authData.user.email?.split("@")[0] || "Karyawan",
@@ -232,7 +230,6 @@ export default function AbsenMasukScreen() {
         now.getMonth() + 1,
       ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-      // PERBAIKAN SHIFT MALAM: Tahan tombol Masuk kalau ada shift nggantung
       const { data: attendanceData } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, actualCheckOut")
@@ -335,6 +332,16 @@ export default function AbsenMasukScreen() {
   const hours = timeToDisplay.getHours().toString().padStart(2, "0");
   const minutes = timeToDisplay.getMinutes().toString().padStart(2, "0");
   const seconds = timeToDisplay.getSeconds().toString().padStart(2, "0");
+
+  // 💡 PERBAIKAN: Format Jam di Watermark biar otomatis menyesuaikan zona
+  const watermarkTime = timeToDisplay.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short", // Ini bakal nampilin WIB / WITA / WIT otomatis
+  });
+
   const day = timeToDisplay.getDate().toString().padStart(2, "0");
   const month = (timeToDisplay.getMonth() + 1).toString().padStart(2, "0");
   const year = timeToDisplay.getFullYear();
@@ -452,10 +459,11 @@ export default function AbsenMasukScreen() {
         .getPublicUrl(storageData.path);
 
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-      const localDateTime = timeToDisplay.toISOString();
 
+      // 💡 PERBAIKAN FATAL: Hapus pengiriman actualCheckIn!
+      // Biarkan kolom actualCheckIn kosong di sisi client, dan setting Supabase
+      // yang akan otomatis mengisi nilainya dengan now() di server.
       const updatePayload = {
-        actualCheckIn: localDateTime,
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
@@ -464,18 +472,24 @@ export default function AbsenMasukScreen() {
       };
 
       if (currentAttendanceId) {
+        // Jika sedang update absen masuk
         const { error: updateError } = await supabase
           .from("attendances")
           .update(updatePayload)
           .eq("id", currentAttendanceId);
         if (updateError) throw updateError;
       } else {
+        // Jika insert absen baru, sisipkan flag waktu manual jika perlu,
+        // tapi sebaiknya setting tabel attendances default kolom actualCheckIn = now()
         const { error: insertError } = await supabase
           .from("attendances")
           .insert({
             id: `att_${Date.now()}`,
             userId: authData.user.id,
             date: localDateOnly,
+            // Jika database lu gak set default now() untuk actualCheckIn,
+            // setidaknya kirim format UTC bersih begini:
+            actualCheckIn: new Date().toISOString(),
             ...updatePayload,
           });
         if (insertError) throw insertError;
@@ -745,9 +759,7 @@ export default function AbsenMasukScreen() {
                   resizeMode="cover"
                 />
 
-                {/* 💡 DESAIN WATERMARK MODERN */}
                 <View className="absolute bottom-28 left-4 right-4 bg-black/75 p-4 rounded-2xl border border-white/20 shadow-2xl">
-                  {/* Nama & Kode Karyawan */}
                   <View className="flex-row items-center mb-2.5 border-b border-white/20 pb-2.5">
                     <View className="w-10 h-10 bg-emerald-500 rounded-full items-center justify-center mr-3">
                       <Text className="text-white font-bold text-lg">
@@ -764,15 +776,14 @@ export default function AbsenMasukScreen() {
                     </View>
                   </View>
 
-                  {/* Jam & Tanggal */}
                   <View className="flex-row items-center mb-1.5">
                     <Ionicons name="time" size={14} color="#10b981" />
+                    {/* 💡 PERBAIKAN: Gunakan watermarkTime yang sudah dinamis zona waktunya */}
                     <Text className="text-white font-bold text-sm ml-2">
-                      {formattedDate} • {hours}:{minutes}:{seconds} WIB
+                      {formattedDate} - {watermarkTime}
                     </Text>
                   </View>
 
-                  {/* Lokasi & Koordinat */}
                   <View className="flex-row items-start">
                     <Ionicons
                       name="location"

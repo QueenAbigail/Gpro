@@ -120,7 +120,7 @@ export const handleDeviceVerification = async (
       } else {
         return {
           success: false,
-          message: "Akses via Web Desktop hanya diperuntukkan bagi Admin.",
+          message: "Akun Anda tidak memiliki izin untuk akses via Web Browser.",
         };
       }
     }

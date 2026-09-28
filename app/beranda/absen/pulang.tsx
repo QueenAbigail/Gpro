@@ -11,7 +11,6 @@ import {
   View,
 } from "react-native";
 
-// 💡 Panggil utilitas rumus jarak lu di sini
 import { getDistance } from "../../../lib/locationUtils";
 import { supabase } from "../../../lib/supabase";
 import { sendActivityLog } from "../../../lib/tracker";
@@ -19,11 +18,9 @@ import { sendActivityLog } from "../../../lib/tracker";
 export default function AbsenPulangScreen() {
   const router = useRouter();
 
-  // State Waktu & Loading
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
 
-  // State Validasi Lokasi (GPS)
   const [isLocationValid, setIsLocationValid] = useState(false);
   const [locationMessage, setLocationMessage] = useState(
     "Mendapatkan Koordinat...",
@@ -33,7 +30,6 @@ export default function AbsenPulangScreen() {
     lon: number;
   } | null>(null);
 
-  // State Aturan Absen & Data DB
   const [currentAttendanceId, setCurrentAttendanceId] = useState<string | null>(
     null,
   );
@@ -41,7 +37,6 @@ export default function AbsenPulangScreen() {
   const [hasCheckedOut, setHasCheckedOut] = useState(false);
   const [scheduleOutTime, setScheduleOutTime] = useState<Date | null>(null);
 
-  // State Menu Debug (Khusus SUPER_ADMIN)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [bypassWaktuPulang, setBypassWaktuPulang] = useState(false);
 
@@ -125,7 +120,6 @@ export default function AbsenPulangScreen() {
         setIsSuperAdmin(true);
       }
 
-      // 1. CEK SESI ABSEN
       const { data: attData } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, actualCheckOut, scheduledEnd")
@@ -138,7 +132,6 @@ export default function AbsenPulangScreen() {
       if (attData) {
         setCurrentAttendanceId(attData.id);
 
-        // 💡 JARING PENGAMAN ZONA WAKTU: Biar hitungan durasi & jam masuk gak ngaco
         let safeCheckIn = attData.actualCheckIn;
         if (
           safeCheckIn &&
@@ -167,7 +160,6 @@ export default function AbsenPulangScreen() {
         setDbJamMasuk(null);
       }
 
-      // 2. CEK RADIUS KHUSUS PULANG (1 KM / 1000 Meter)
       if (userData?.allowMobileAttendance) {
         setIsLocationValid(true);
         setLocationMessage("Mode Mobile Aktif");
@@ -239,7 +231,6 @@ export default function AbsenPulangScreen() {
   const minutes = currentTime.getMinutes().toString().padStart(2, "0");
   const seconds = currentTime.getSeconds().toString().padStart(2, "0");
 
-  // Hitung Durasi Shift
   const getDurasiKerja = () => {
     if (!dbJamMasuk) return "--j --m";
     const checkInTime = new Date(dbJamMasuk);
@@ -250,15 +241,18 @@ export default function AbsenPulangScreen() {
     return `${diffHrs}j ${diffMins}m`;
   };
 
+  // 💡 PERBAIKAN: Format Jam Masuk otomatis dinamis menyesuaikan zona waktu HP user
   const getTeksJamMasuk = () => {
     if (!dbJamMasuk) return "--:--";
     const d = new Date(dbJamMasuk);
-    const h = d.getHours().toString().padStart(2, "0");
-    const m = d.getMinutes().toString().padStart(2, "0");
-    return `${h}:${m} WIB`;
+    return d.toLocaleTimeString("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZoneName: "short", // Otomatis nampilin WIB / WITA / WIT
+    });
   };
 
-  // Validasi Aturan Tombol Utama
   const isTooEarly =
     scheduleOutTime && !bypassWaktuPulang
       ? currentTime < scheduleOutTime
@@ -286,7 +280,6 @@ export default function AbsenPulangScreen() {
     buttonIcon = "time";
   }
 
-  // Kirim Data Pulang ke Supabase
   const submitAbsenPulang = async () => {
     if (isButtonDisabled) return;
     setIsLoading(true);
@@ -329,7 +322,6 @@ export default function AbsenPulangScreen() {
 
   return (
     <View className="flex-1 bg-sky-50">
-      {/* Header */}
       <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
         <TouchableOpacity
           onPress={() => router.back()}
@@ -349,7 +341,6 @@ export default function AbsenPulangScreen() {
         className="flex-1 px-6 pt-6"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* Card Waktu */}
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6 items-center">
           <Text className="text-gray-500 font-medium mb-2">Waktu Saat Ini</Text>
           <View className="flex-row items-end mb-4">
@@ -386,7 +377,6 @@ export default function AbsenPulangScreen() {
           </View>
         </View>
 
-        {/* Ringkasan Shift */}
         <View className="bg-blue-600 rounded-3xl p-5 shadow-md mb-8">
           <Text className="text-blue-100 font-medium text-sm mb-4">
             Ringkasan Shift Hari Ini
@@ -408,7 +398,6 @@ export default function AbsenPulangScreen() {
           </View>
         </View>
 
-        {/* Tombol Catat Absen Pulang */}
         <TouchableOpacity
           onPress={submitAbsenPulang}
           disabled={isButtonDisabled}
@@ -441,7 +430,6 @@ export default function AbsenPulangScreen() {
           )}
         </TouchableOpacity>
 
-        {/* ✅ MENU DEBUG UNGU KHUSUS SUPER_ADMIN (Selalu Bisa Dipencet) */}
         {isSuperAdmin && (
           <View className="mt-6 p-4 border border-purple-200 bg-purple-50 rounded-2xl items-center">
             <Text className="text-purple-700 font-bold mb-3 text-xs uppercase tracking-wider">
