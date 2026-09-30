@@ -193,9 +193,14 @@ export const handleDeviceVerification = async (
 
     // --- SKENARIO B: DEVICE INI SUDAH TERDAFTAR DI DATABASE ---
     if (deviceBinding.userId === userId) {
+      // 💡 UPDATE TERBARU: appVersion dan deviceName ikut di-update tiap login rutin
       await supabase
         .from(NAMA_TABEL)
-        .update({ lastUsed: new Date().toISOString() })
+        .update({
+          lastUsed: new Date().toISOString(),
+          appVersion: appVersion,
+          deviceName: deviceName,
+        })
         .eq("deviceId", deviceId);
 
       return { success: true, message: "Device terverifikasi." };
@@ -207,10 +212,8 @@ export const handleDeviceVerification = async (
       };
     }
   } catch (error: any) {
-    // Log error asli untuk keperluan Developer Debugging
     console.error("🔴 [DEV DEBUG] Error device verification raw:", error);
 
-    // Kirim pesan ramah yang sudah diterjemahkan ke UI modal user
     return {
       success: false,
       message: getFriendlyErrorMessage(error),
@@ -219,7 +222,7 @@ export const handleDeviceVerification = async (
 };
 
 // ============================================================================
-// 💡 TAMBAHAN BARU: Helper untuk ngerakit format User Agent API Tracker
+// 💡 Helper untuk ngerakit format User Agent API Tracker
 // ============================================================================
 export const getDeviceMetadataString = (): string => {
   const platform = Platform.OS === "ios" ? "iOS" : "Android";
@@ -227,6 +230,5 @@ export const getDeviceMetadataString = (): string => {
   const osVersion = `${platform} ${Device.osVersion || "Unknown"}`;
   const appVersion = `App ${Application.nativeApplicationVersion || "1.0.0"}`;
 
-  // Output wajib brief: Android · Samsung Galaxy S24 · Android 15 · App 1.0.0
   return `${platform} · ${modelName} · ${osVersion} · ${appVersion}`;
 };

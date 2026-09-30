@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react"; // 💡 Tambah useRef disini
 import {
   ActivityIndicator,
   Image,
@@ -17,10 +17,14 @@ import { supabase } from "../lib/supabase";
 import { sendActivityLog } from "../lib/tracker";
 
 const CACHE_KEY_APP_SETTINGS = "@app_system_settings";
+const localLogo = require("../assets/images/login_icon.png");
 
 export default function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+
+  // 💡 STATE BARU: Buat referensi perpindahan kursor antar TextInput
+  const passwordRef = useRef<TextInput>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,7 +32,6 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   const [appName, setAppName] = useState("Pro Maxima Rajawali");
-  const [appLogo, setAppLogo] = useState<string | null>(null);
   const [appDescription, setAppDescription] = useState(
     "Sistem Informasi Manajemen Kehadiran",
   );
@@ -39,6 +42,35 @@ export default function LoginScreen() {
   useEffect(() => {
     initSystemSettings();
   }, []);
+
+  const initSystemSettings = async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem(CACHE_KEY_APP_SETTINGS);
+      if (cachedData) {
+        const parsed = JSON.parse(cachedData);
+        if (parsed.appName) setAppName(parsed.appName);
+        if (parsed.appDescription) setAppDescription(parsed.appDescription);
+      }
+
+      const { data, error } = await supabase
+        .from("system_settings")
+        .select("*")
+        .eq("id", "default")
+        .single();
+
+      if (!error && data) {
+        if (data.appName) setAppName(data.appName);
+        if (data.appDescription) setAppDescription(data.appDescription);
+
+        await AsyncStorage.setItem(
+          CACHE_KEY_APP_SETTINGS,
+          JSON.stringify(data),
+        );
+      }
+    } catch (error) {
+      console.log("Background sync settings info:", error);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -54,39 +86,7 @@ export default function LoginScreen() {
     }, [params?.error, params?.message]),
   );
 
-  const initSystemSettings = async () => {
-    try {
-      const cachedData = await AsyncStorage.getItem(CACHE_KEY_APP_SETTINGS);
-      if (cachedData) {
-        const parsed = JSON.parse(cachedData);
-        if (parsed.appName) setAppName(parsed.appName);
-        if (parsed.appDescription) setAppDescription(parsed.appDescription);
-        if (parsed.logoUrl) setAppLogo(parsed.logoUrl);
-      }
-
-      const { data, error } = await supabase
-        .from("system_settings")
-        .select("*")
-        .eq("id", "default")
-        .single();
-
-      if (!error && data) {
-        if (data.appName) setAppName(data.appName);
-        if (data.appDescription) setAppDescription(data.appDescription);
-        if (data.logoUrl) setAppLogo(data.logoUrl);
-
-        await AsyncStorage.setItem(
-          CACHE_KEY_APP_SETTINGS,
-          JSON.stringify(data),
-        );
-      }
-    } catch (error) {
-      console.log("Background sync settings info:", error);
-    }
-  };
-
   const handleLogin = async () => {
-    // 💡 PERBAIKAN: Hapus spasi "gaib" bawaan iPhone/Copy-Paste dengan .trim()
     const cleanEmail = email.trim();
     const cleanPassword = password.trim();
 
@@ -102,7 +102,6 @@ export default function LoginScreen() {
       ? cleanEmail
       : `${cleanEmail}@hris.com`;
 
-    // Tembak login ke Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email: formattedEmail,
       password: cleanPassword,
@@ -165,12 +164,7 @@ export default function LoginScreen() {
             style={{ width: 112, height: 112 }}
           >
             <Image
-              source={
-                appLogo
-                  ? { uri: appLogo }
-                  : require("../assets/images/login_icon.png")
-              }
-              className="w-full h-full"
+              source={localLogo}
               style={{ width: "100%", height: "100%" }}
               resizeMode="contain"
             />
@@ -207,9 +201,12 @@ export default function LoginScreen() {
                 placeholderTextColor="#9ca3af"
                 keyboardType="email-address"
                 autoCapitalize="none"
-                autoCorrect={false} // 💡 PERBAIKAN: Matikan autocorrect biar iPhone gak sok pinter ngubah ID
+                autoCorrect={false}
                 value={email}
                 onChangeText={setEmail}
+                returnKeyType="next" // 💡 Ubah tombol enter di HP jadi "Next"
+                onSubmitEditing={() => passwordRef.current?.focus()} // 💡 Pas dienter, fokus pindah ke password
+                blurOnSubmit={false} // Biar keyboard nggak sempet turun pas pindah
               />
             </View>
           </View>
@@ -226,14 +223,17 @@ export default function LoginScreen() {
                 className="mr-3"
               />
               <TextInput
+                ref={passwordRef} // 💡 Daftarkan ref di sini biar bisa dituju sama kolom email
                 className="flex-1 text-gray-800 font-medium ml-2"
                 placeholder="Masukkan kata sandi"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="none"
-                autoCorrect={false} // 💡 PERBAIKAN
+                autoCorrect={false}
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                returnKeyType="go" // 💡 Ubah tombol enter di HP jadi "Go" / "Selesai"
+                onSubmitEditing={handleLogin} // 💡 Pas dienter, langsung hajar fungsi login!
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons

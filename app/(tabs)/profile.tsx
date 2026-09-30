@@ -234,7 +234,7 @@ export default function ProfileScreen() {
       {/* Teks Versi Aplikasi */}
       <View className="items-center pt-2 pb-6">
         <Text className="text-slate-400 text-xs font-semibold">
-          GlobalPro Mobile v1.1.0
+          GlobalPro Mobile v1.2.0
         </Text>
       </View>
 
