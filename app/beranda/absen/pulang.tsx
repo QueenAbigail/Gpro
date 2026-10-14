@@ -120,19 +120,53 @@ export default function AbsenPulangScreen() {
         setIsSuperAdmin(true);
       }
 
-      const { data: attData } = await supabase
+      const now = new Date();
+      const todayString = `${now.getFullYear()}-${String(
+        now.getMonth() + 1,
+      ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+      // 1. Cari sesi aktif: sudah check-in, belum check-out, tanggal <= hari ini
+      const { data: activeAttendance } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, actualCheckOut, scheduledEnd")
         .eq("userId", authData.user.id)
+        .lte("date", todayString)
+        .not("actualCheckIn", "is", null)
         .is("actualCheckOut", null)
         .order("date", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (attData) {
-        setCurrentAttendanceId(attData.id);
+      let targetAttendance: any = null;
 
-        let safeCheckIn = attData.actualCheckIn;
+      if (activeAttendance) {
+        const checkInTime = new Date(activeAttendance.actualCheckIn).getTime();
+        const hoursPassed = (now.getTime() - checkInTime) / (1000 * 60 * 60);
+
+        // Hanya anggap sesi aktif jika di bawah 16 jam (menghindari absen gantung hari lampau)
+        if (hoursPassed < 16) {
+          targetAttendance = activeAttendance;
+        }
+      }
+
+      // 2. Jika tidak ada sesi aktif berjalan, periksa record jadwal hari ini
+      if (!targetAttendance) {
+        const { data: todayAttendance } = await supabase
+          .from("attendances")
+          .select("id, date, actualCheckIn, actualCheckOut, scheduledEnd")
+          .eq("userId", authData.user.id)
+          .eq("date", todayString)
+          .maybeSingle();
+
+        if (todayAttendance) {
+          targetAttendance = todayAttendance;
+        }
+      }
+
+      if (targetAttendance) {
+        setCurrentAttendanceId(targetAttendance.id);
+
+        let safeCheckIn = targetAttendance.actualCheckIn;
         if (
           safeCheckIn &&
           !safeCheckIn.endsWith("Z") &&
@@ -143,21 +177,39 @@ export default function AbsenPulangScreen() {
 
         if (safeCheckIn) {
           setDbJamMasuk(safeCheckIn);
+        } else {
+          setDbJamMasuk(null);
         }
 
-        if (attData.scheduledEnd) {
-          const [h, m, s] = attData.scheduledEnd.split(":");
-          const tempDate = new Date(safeCheckIn || new Date());
-          tempDate.setHours(parseInt(h), parseInt(m), parseInt(s || "0"), 0);
+        if (targetAttendance.actualCheckOut) {
+          setHasCheckedOut(true);
+        } else {
+          setHasCheckedOut(false);
+        }
 
-          if (tempDate < new Date(safeCheckIn!)) {
+        if (targetAttendance.scheduledEnd && safeCheckIn) {
+          const [h, m, s] = targetAttendance.scheduledEnd.split(":");
+          const tempDate = new Date(safeCheckIn);
+          tempDate.setHours(
+            parseInt(h, 10),
+            parseInt(m, 10),
+            parseInt(s || "0", 10),
+            0,
+          );
+
+          if (tempDate < new Date(safeCheckIn)) {
             tempDate.setDate(tempDate.getDate() + 1);
           }
 
           setScheduleOutTime(tempDate);
+        } else {
+          setScheduleOutTime(null);
         }
       } else {
+        setCurrentAttendanceId(null);
         setDbJamMasuk(null);
+        setHasCheckedOut(false);
+        setScheduleOutTime(null);
       }
 
       if (userData?.allowMobileAttendance) {
@@ -241,7 +293,6 @@ export default function AbsenPulangScreen() {
     return `${diffHrs}j ${diffMins}m`;
   };
 
-  // 💡 PERBAIKAN: Format Jam Masuk otomatis dinamis menyesuaikan zona waktu HP user
   const getTeksJamMasuk = () => {
     if (!dbJamMasuk) return "--:--";
     const d = new Date(dbJamMasuk);
@@ -249,7 +300,7 @@ export default function AbsenPulangScreen() {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-      timeZoneName: "short", // Otomatis nampilin WIB / WITA / WIT
+      timeZoneName: "short",
     });
   };
 
@@ -272,10 +323,10 @@ export default function AbsenPulangScreen() {
     buttonTitle = "SUDAH PULANG";
     buttonSubtitle = "Shift kerja hari ini selesai";
     buttonIcon = "checkmark-done";
-  } else if (isTooEarly) {
+  } else if (isTooEarly && scheduleOutTime) {
     buttonTitle = "BELUM WAKTUNYA PULANG";
-    const outH = scheduleOutTime!.getHours().toString().padStart(2, "0");
-    const outM = scheduleOutTime!.getMinutes().toString().padStart(2, "0");
+    const outH = scheduleOutTime.getHours().toString().padStart(2, "0");
+    const outM = scheduleOutTime.getMinutes().toString().padStart(2, "0");
     buttonSubtitle = `Jadwal pulangmu hari ini pukul ${outH}:${outM}`;
     buttonIcon = "time";
   }
@@ -353,7 +404,9 @@ export default function AbsenPulangScreen() {
           </View>
 
           <View
-            className={`flex-row items-center px-4 py-2 rounded-full ${isLocationValid ? "bg-emerald-50" : "bg-amber-50"}`}
+            className={`flex-row items-center px-4 py-2 rounded-full ${
+              isLocationValid ? "bg-emerald-50" : "bg-amber-50"
+            }`}
           >
             {isLocationValid ? (
               <>

@@ -112,7 +112,6 @@ export default function AbsenMasukScreen() {
           let statusText = "Belum Absen";
 
           if (item.actualCheckIn) {
-            // 💡 PERBAIKAN: Gunakan format jam asli dengan setting timezone lokal HP
             const checkIn = new Date(item.actualCheckIn);
             timeString = checkIn.toLocaleTimeString("id-ID", {
               hour: "2-digit",
@@ -230,23 +229,47 @@ export default function AbsenMasukScreen() {
         now.getMonth() + 1,
       ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+      // Proteksi: Gunakan .lte("date", todayString) agar jadwal pre-added masa depan tidak terambil
       const { data: attendanceData } = await supabase
         .from("attendances")
         .select("id, date, actualCheckIn, actualCheckOut")
         .eq("userId", authData.user.id)
+        .lte("date", todayString)
         .order("date", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (attendanceData) {
         const isToday = attendanceData.date === todayString;
-        const isNightShiftActive =
-          attendanceData.actualCheckIn && !attendanceData.actualCheckOut;
 
-        if (isToday || isNightShiftActive) {
+        // Cek shift malam aktif dari kemarin (belum check-out & masih di bawah 16 jam)
+        let isNightShiftActive = false;
+        if (
+          !isToday &&
+          attendanceData.actualCheckIn &&
+          !attendanceData.actualCheckOut
+        ) {
+          const checkInTime = new Date(attendanceData.actualCheckIn).getTime();
+          const hoursPassed = (now.getTime() - checkInTime) / (1000 * 60 * 60);
+          if (hoursPassed < 16) {
+            isNightShiftActive = true;
+          }
+        }
+
+        if (isToday) {
+          setCurrentAttendanceId(attendanceData.id);
+          // Hanya anggap sudah absen jika actualCheckIn sudah terisi
+          setHasCheckedIn(Boolean(attendanceData.actualCheckIn));
+        } else if (isNightShiftActive) {
           setCurrentAttendanceId(attendanceData.id);
           setHasCheckedIn(true);
+        } else {
+          setCurrentAttendanceId(null);
+          setHasCheckedIn(false);
         }
+      } else {
+        setCurrentAttendanceId(null);
+        setHasCheckedIn(false);
       }
 
       if (userData?.allowMobileAttendance) {
@@ -333,13 +356,12 @@ export default function AbsenMasukScreen() {
   const minutes = timeToDisplay.getMinutes().toString().padStart(2, "0");
   const seconds = timeToDisplay.getSeconds().toString().padStart(2, "0");
 
-  // 💡 PERBAIKAN: Format Jam di Watermark biar otomatis menyesuaikan zona
   const watermarkTime = timeToDisplay.toLocaleTimeString("id-ID", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-    timeZoneName: "short", // Ini bakal nampilin WIB / WITA / WIT otomatis
+    timeZoneName: "short",
   });
 
   const day = timeToDisplay.getDate().toString().padStart(2, "0");
@@ -460,10 +482,8 @@ export default function AbsenMasukScreen() {
 
       const photoUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
 
-      // 💡 PERBAIKAN FATAL: Hapus pengiriman actualCheckIn!
-      // Biarkan kolom actualCheckIn kosong di sisi client, dan setting Supabase
-      // yang akan otomatis mengisi nilainya dengan now() di server.
       const updatePayload = {
+        actualCheckIn: new Date().toISOString(),
         selfieCheckIn: photoUrl,
         gpsLat: userLocation?.lat,
         gpsLng: userLocation?.lon,
@@ -472,24 +492,20 @@ export default function AbsenMasukScreen() {
       };
 
       if (currentAttendanceId) {
-        // Jika sedang update absen masuk
+        // Update absen masuk pada baris jadwal yang sudah ada
         const { error: updateError } = await supabase
           .from("attendances")
           .update(updatePayload)
           .eq("id", currentAttendanceId);
         if (updateError) throw updateError;
       } else {
-        // Jika insert absen baru, sisipkan flag waktu manual jika perlu,
-        // tapi sebaiknya setting tabel attendances default kolom actualCheckIn = now()
+        // Insert absen baru jika belum ada jadwal pre-added
         const { error: insertError } = await supabase
           .from("attendances")
           .insert({
             id: `att_${Date.now()}`,
             userId: authData.user.id,
             date: localDateOnly,
-            // Jika database lu gak set default now() untuk actualCheckIn,
-            // setidaknya kirim format UTC bersih begini:
-            actualCheckIn: new Date().toISOString(),
             ...updatePayload,
           });
         if (insertError) throw insertError;
@@ -778,9 +794,8 @@ export default function AbsenMasukScreen() {
 
                   <View className="flex-row items-center mb-1.5">
                     <Ionicons name="time" size={14} color="#10b981" />
-                    {/* 💡 PERBAIKAN: Gunakan watermarkTime yang sudah dinamis zona waktunya */}
                     <Text className="text-white font-bold text-sm ml-2">
-                      {formattedDate} - {watermarkTime}
+                      {formattedDate} {watermarkTime}
                     </Text>
                   </View>
 
