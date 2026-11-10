@@ -111,3 +111,48 @@ export async function registerForPushNotificationsAsync(userId: string) {
     return null;
   }
 }
+
+export interface PushMessagePayload {
+  to: string;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  sound?: string;
+  priority?: "default" | "normal" | "high";
+}
+
+export async function sendPushNotificationsAsync(
+  messages: PushMessagePayload[],
+) {
+  if (!messages || messages.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  try {
+    const formattedMessages = messages.map((m) => ({
+      to: m.to,
+      sound: m.sound || "default",
+      title: m.title,
+      body: m.body,
+      priority: m.priority || "high",
+      channelId: "default",
+      data: m.data || {},
+    }));
+
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Accept-encoding": "gzip, deflate",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(formattedMessages),
+    });
+
+    const result = await response.json();
+    return { success: true, result, count: formattedMessages.length };
+  } catch (error) {
+    console.error("🔴 Error sending push notification:", error);
+    return { success: false, error };
+  }
+}

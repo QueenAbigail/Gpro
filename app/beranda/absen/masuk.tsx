@@ -21,6 +21,64 @@ import { getDistance } from "../../../lib/locationUtils";
 import { supabase } from "../../../lib/supabase";
 import { sendActivityLog } from "../../../lib/tracker";
 
+const calculateShiftForDate = (
+  patternAssignment: { startDate: string } | null,
+  shiftsList: any[],
+  targetDate: Date,
+) => {
+  if (!patternAssignment?.startDate || !shiftsList || shiftsList.length === 0) {
+    return null;
+  }
+
+  const target = new Date(targetDate);
+  target.setHours(0, 0, 0, 0);
+
+  const start = new Date(patternAssignment.startDate);
+  start.setHours(0, 0, 0, 0);
+
+  const diffTime = target.getTime() - start.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return null;
+
+  const cycleDay = diffDays % 8;
+  let shiftName = "";
+  if (cycleDay === 0 || cycleDay === 1) shiftName = "pagi";
+  else if (cycleDay === 2 || cycleDay === 3) shiftName = "sore";
+  else if (cycleDay === 4 || cycleDay === 5) shiftName = "malam";
+  else
+    return {
+      isOffDay: true,
+      shift: null,
+      name: "Libur (Day Off)",
+      startTime: null,
+      endTime: null,
+      graceMinutes: 0,
+    };
+
+  const matchedShift = shiftsList.find((s) =>
+    s.name?.toLowerCase().includes(shiftName),
+  );
+
+  if (!matchedShift) return null;
+
+  const graceMinutes = Number(
+    matchedShift.gracePeriodMinutes ??
+      matchedShift.gracePeriod ??
+      matchedShift.grace_period ??
+      0,
+  );
+
+  return {
+    isOffDay: false,
+    shift: matchedShift,
+    name: matchedShift.name,
+    startTime: matchedShift.startTime,
+    endTime: matchedShift.endTime,
+    graceMinutes,
+  };
+};
+
 export default function AbsenMasukScreen() {
   const router = useRouter();
 
@@ -58,6 +116,11 @@ export default function AbsenMasukScreen() {
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [absenHistory, setAbsenHistory] = useState<any[]>([]);
+
+  const [isTooEarly, setIsTooEarly] = useState(false);
+  const [earliestCheckInStr, setEarliestCheckInStr] = useState("");
+  const patternAssignmentRef = useRef<any>(null);
+  const shiftsListRef = useRef<any[]>([]);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -118,7 +181,34 @@ export default function AbsenMasukScreen() {
               minute: "2-digit",
               hour12: false,
             });
-            statusText = "Tercatat";
+
+            // Kalkulasi jadwal shift pada tanggal tersebut
+            const itemDate = new Date(item.date);
+            const daySchedule = calculateShiftForDate(
+              patternAssignmentRef.current,
+              shiftsListRef.current,
+              itemDate,
+            );
+
+            if (daySchedule && !daySchedule.isOffDay && daySchedule.startTime) {
+              const [startH, startM] = daySchedule.startTime
+                .split(":")
+                .map(Number);
+              const shiftStart = new Date(checkIn);
+              shiftStart.setHours(startH, startM, 0, 0);
+
+              const lateThreshold = new Date(
+                shiftStart.getTime() + daySchedule.graceMinutes * 60 * 1000,
+              );
+
+              if (checkIn.getTime() > lateThreshold.getTime()) {
+                statusText = "Terlambat";
+              } else {
+                statusText = "Tercatat";
+              }
+            } else {
+              statusText = "Tercatat";
+            }
           }
 
           const typeText =
@@ -165,7 +255,7 @@ export default function AbsenMasukScreen() {
         location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
-      } catch (gpsError) {
+      } catch {
         await sendActivityLog(
           "FAILED_GPS_TIMEOUT",
           authInfo.token,
@@ -222,6 +312,57 @@ export default function AbsenMasukScreen() {
 
       if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
         setIsAdmin(true);
+      }
+
+      // Ambil jadwal shift & pola rotasi
+      try {
+        const [assignmentRes, shiftsRes] = await Promise.all([
+          supabase
+            .from("employee_pattern_assignments")
+            .select("startDate")
+            .eq("userId", authData.user.id)
+            .maybeSingle(),
+          supabase.from("shifts").select("*"),
+        ]);
+
+        const assignmentData = assignmentRes.data || null;
+        const shiftsData = shiftsRes.data || [];
+        patternAssignmentRef.current = assignmentData;
+        shiftsListRef.current = shiftsData;
+
+        // Cek shift hari ini
+        const checkNow = new Date();
+        const todaySched = calculateShiftForDate(
+          assignmentData,
+          shiftsData,
+          checkNow,
+        );
+
+        if (todaySched && !todaySched.isOffDay && todaySched.startTime) {
+          const [startH, startM] = todaySched.startTime.split(":").map(Number);
+          const shiftStart = new Date(checkNow);
+          shiftStart.setHours(startH, startM, 0, 0);
+
+          const earliest = new Date(
+            shiftStart.getTime() - 3 * 60 * 60 * 1000,
+          );
+
+          if (checkNow < earliest) {
+            setIsTooEarly(true);
+            const eH = earliest.getHours().toString().padStart(2, "0");
+            const eM = earliest.getMinutes().toString().padStart(2, "0");
+            setEarliestCheckInStr(`${eH}:${eM}`);
+          } else {
+            setIsTooEarly(false);
+          }
+        } else {
+          setIsTooEarly(false);
+        }
+
+        // Segarkan riwayat dengan jadwal yang baru dimuat
+        fetchHistory();
+      } catch (scheduleErr) {
+        console.log("Error mengambil jadwal:", scheduleErr);
       }
 
       const now = new Date();
@@ -345,10 +486,44 @@ export default function AbsenMasukScreen() {
   };
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now);
+
+      if (patternAssignmentRef.current && shiftsListRef.current.length > 0) {
+        const todaySched = calculateShiftForDate(
+          patternAssignmentRef.current,
+          shiftsListRef.current,
+          now,
+        );
+        if (todaySched && !todaySched.isOffDay && todaySched.startTime) {
+          const [startH, startM] = todaySched.startTime.split(":").map(Number);
+          const shiftStart = new Date(now);
+          shiftStart.setHours(startH, startM, 0, 0);
+
+          const earliest = new Date(
+            shiftStart.getTime() - 3 * 60 * 60 * 1000,
+          );
+          if (now < earliest) {
+            setIsTooEarly(true);
+            const eH = earliest.getHours().toString().padStart(2, "0");
+            const eM = earliest.getMinutes().toString().padStart(2, "0");
+            setEarliestCheckInStr(`${eH}:${eM}`);
+          } else {
+            setIsTooEarly(false);
+          }
+        } else {
+          setIsTooEarly(false);
+        }
+      } else {
+        // Tidak ada schedule / belum di-assign jadwal -> bebas absen kapan saja
+        setIsTooEarly(false);
+      }
+    }, 1000);
     validateLocation();
     fetchHistory();
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const timeToDisplay = capturedTime || currentTime;
@@ -370,6 +545,15 @@ export default function AbsenMasukScreen() {
   const formattedDate = `${day}/${month}/${year}`;
 
   const handleBukaKamera = async () => {
+    if (isTooEarly) {
+      setModalConfig({
+        visible: true,
+        type: "error",
+        title: "Belum Waktunya Absen",
+        message: `Absen masuk dibuka mulai pukul ${earliestCheckInStr} (3 jam sebelum shift dimulai).`,
+      });
+      return;
+    }
     if (!isLocationValid) {
       setModalConfig({
         visible: true,
@@ -413,7 +597,7 @@ export default function AbsenMasukScreen() {
         });
         setCapturedPhoto(photo.uri);
         setCapturedTime(new Date());
-      } catch (error) {
+      } catch {
         setModalConfig({
           visible: true,
           type: "error",
@@ -524,11 +708,35 @@ export default function AbsenMasukScreen() {
 
       fetchHistory();
 
+      const checkNow = new Date();
+      const todaySched = calculateShiftForDate(
+        patternAssignmentRef.current,
+        shiftsListRef.current,
+        checkNow,
+      );
+
+      let isLate = false;
+      if (todaySched && !todaySched.isOffDay && todaySched.startTime) {
+        const [startH, startM] = todaySched.startTime.split(":").map(Number);
+        const shiftStart = new Date(checkNow);
+        shiftStart.setHours(startH, startM, 0, 0);
+
+        const lateThreshold = new Date(
+          shiftStart.getTime() + todaySched.graceMinutes * 60 * 1000,
+        );
+
+        if (checkNow.getTime() > lateThreshold.getTime()) {
+          isLate = true;
+        }
+      }
+
       setModalConfig({
         visible: true,
         type: "success",
-        title: "Absen Berhasil",
-        message: "Kehadiran masuk Anda berhasil tercatat!",
+        title: isLate ? "Absen Terlambat" : "Absen Berhasil",
+        message: isLate
+          ? "Kehadiran masuk Anda berhasil tercatat (Terlambat)."
+          : "Kehadiran masuk Anda berhasil tercatat (Tepat Waktu)!",
       });
     } catch (error: any) {
       setIsLoading(false);
@@ -665,30 +873,42 @@ export default function AbsenMasukScreen() {
 
           <TouchableOpacity
             onPress={handleBukaKamera}
-            disabled={!isLocationValid || hasCheckedIn}
+            disabled={!isLocationValid || hasCheckedIn || isTooEarly}
             className={`w-full py-5 rounded-3xl items-center flex-row justify-center ${
               hasCheckedIn ? "mb-3" : "mb-10"
             } shadow-lg ${
-              !isLocationValid || hasCheckedIn
+              !isLocationValid || hasCheckedIn || isTooEarly
                 ? "bg-slate-300"
                 : "bg-blue-600 active:bg-blue-700"
             }`}
           >
             <View className="w-10 h-10 bg-white/20 rounded-full items-center justify-center mr-3">
               <Ionicons
-                name={hasCheckedIn ? "checkmark-done" : "finger-print"}
+                name={
+                  hasCheckedIn
+                    ? "checkmark-done"
+                    : isTooEarly
+                      ? "time"
+                      : "finger-print"
+                }
                 size={24}
                 color="white"
               />
             </View>
             <View className="items-start">
               <Text className="text-white font-extrabold text-lg tracking-wide">
-                {hasCheckedIn ? "SUDAH ABSEN" : "CATAT ABSEN"}
+                {hasCheckedIn
+                  ? "SUDAH ABSEN"
+                  : isTooEarly
+                    ? "BELUM BISA ABSEN"
+                    : "CATAT ABSEN"}
               </Text>
               <Text className="text-blue-100 text-xs">
                 {hasCheckedIn
                   ? "Kehadiran kamu hari ini sudah tercatat"
-                  : "Tanpa Scan QR Code"}
+                  : isTooEarly
+                    ? `Dibuka pukul ${earliestCheckInStr} (3 jam sebelum shift)`
+                    : "Tanpa Scan QR Code"}
               </Text>
             </View>
           </TouchableOpacity>
@@ -700,6 +920,17 @@ export default function AbsenMasukScreen() {
             >
               <Text className="text-purple-600 font-bold text-xs">
                 🛠️ DEBUG: Reset Akses Absen
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {isTooEarly && isAdmin && (
+            <TouchableOpacity
+              onPress={() => setIsTooEarly(false)}
+              className="w-full py-3 mb-10 rounded-2xl items-center bg-amber-50 border border-amber-200 active:bg-amber-100"
+            >
+              <Text className="text-amber-700 font-bold text-xs">
+                🛠️ DEBUG: Lewati Batasan 3 Jam (Mode Uji Coba Admin)
               </Text>
             </TouchableOpacity>
           )}
@@ -718,17 +949,29 @@ export default function AbsenMasukScreen() {
             >
               <View
                 className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
-                  item.status === "Tercatat" ? "bg-emerald-50" : "bg-gray-100"
+                  item.status === "Tercatat"
+                    ? "bg-emerald-50"
+                    : item.status === "Terlambat"
+                      ? "bg-rose-50"
+                      : "bg-gray-100"
                 }`}
               >
                 <Ionicons
                   name={
                     item.status === "Tercatat"
                       ? "checkmark-circle"
-                      : "time-outline"
+                      : item.status === "Terlambat"
+                        ? "alert-circle"
+                        : "time-outline"
                   }
                   size={24}
-                  color={item.status === "Tercatat" ? "#10b981" : "#9ca3af"}
+                  color={
+                    item.status === "Tercatat"
+                      ? "#10b981"
+                      : item.status === "Terlambat"
+                        ? "#e11d48"
+                        : "#9ca3af"
+                  }
                 />
               </View>
               <View className="flex-1">
@@ -742,14 +985,20 @@ export default function AbsenMasukScreen() {
               </View>
               <View
                 className={`px-3 py-1.5 rounded-full ${
-                  item.status === "Tercatat" ? "bg-emerald-100" : "bg-gray-200"
+                  item.status === "Tercatat"
+                    ? "bg-emerald-100"
+                    : item.status === "Terlambat"
+                      ? "bg-rose-100"
+                      : "bg-gray-200"
                 }`}
               >
                 <Text
                   className={`text-[10px] font-bold uppercase ${
                     item.status === "Tercatat"
                       ? "text-emerald-700"
-                      : "text-gray-600"
+                      : item.status === "Terlambat"
+                        ? "text-rose-700"
+                        : "text-gray-600"
                   }`}
                 >
                   {item.status}

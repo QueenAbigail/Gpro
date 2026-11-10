@@ -31,8 +31,8 @@ export default function NotificationsScreen() {
       const { data, error } = await supabase
         .from("notifications")
         .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .eq("userId", user.id)
+        .order("createdAt", { ascending: false });
 
       if (error) {
         console.error("Error fetching notifications:", error);
@@ -42,8 +42,8 @@ export default function NotificationsScreen() {
           type: item.type as NotificationType,
           title: item.title,
           message: item.body,
-          time: formatDistanceToNow(new Date(item.created_at), { addSuffix: true, locale: id }),
-          isRead: item.is_read,
+          time: formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: id }),
+          isRead: item.isRead,
         }));
         setNotifications(formattedData);
       }
@@ -72,7 +72,7 @@ export default function NotificationsScreen() {
             event: "INSERT",
             schema: "public",
             table: "notifications",
-            filter: `user_id=eq.${user.id}`,
+            filter: `userId=eq.${user.id}`,
           },
           (payload) => {
             const newRow = payload.new;
@@ -83,7 +83,7 @@ export default function NotificationsScreen() {
                 title: newRow.title,
                 message: newRow.body,
                 time: "Baru saja",
-                isRead: newRow.is_read,
+                isRead: newRow.isRead,
               },
               ...prev,
             ]);
@@ -109,9 +109,9 @@ export default function NotificationsScreen() {
 
     const { error } = await supabase
       .from("notifications")
-      .update({ is_read: true })
-      .eq("user_id", user.id)
-      .eq("is_read", false);
+      .update({ isRead: true, updatedAt: new Date().toISOString() })
+      .eq("userId", user.id)
+      .eq("isRead", false);
 
     if (!error) {
       setNotifications(notifications.map(n => ({ ...n, isRead: true })));
@@ -123,7 +123,7 @@ export default function NotificationsScreen() {
     if (!item.isRead) {
       const { error } = await supabase
         .from("notifications")
-        .update({ is_read: true })
+        .update({ isRead: true, updatedAt: new Date().toISOString() })
         .eq("id", item.id);
 
       if (!error) {
@@ -135,11 +135,11 @@ export default function NotificationsScreen() {
   };
 
   const getIconConfig = (type: NotificationType) => {
-    switch (type) {
+    switch (String(type || "").toLowerCase()) {
       case "leave": return { name: "calendar", color: "#10b981", bg: "bg-emerald-100" };
       case "payroll": return { name: "wallet", color: "#f59e0b", bg: "bg-amber-100" };
       case "patrol": return { name: "shield-checkmark", color: "#3b82f6", bg: "bg-blue-100" };
-      case "system": return { name: "cog", color: "#64748b", bg: "bg-slate-200" };
+      case "system": return { name: "alert-circle", color: "#ef4444", bg: "bg-red-100" };
       default: return { name: "notifications", color: "#3b82f6", bg: "bg-blue-100" };
     }
   };

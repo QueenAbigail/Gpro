@@ -37,7 +37,8 @@ export default function UpdateModal() {
   };
 
   const handleRedirectToPlayStore = () => {
-    const packageName = Constants.expoConfig?.android?.package || "com.promaxima.hr";
+    const packageName =
+      Constants.expoConfig?.android?.package || "com.promaxima.globalpromobile";
     const playStoreUrl = `market://details?id=${packageName}`;
     const webUrl = `https://play.google.com/store/apps/details?id=${packageName}`;
 

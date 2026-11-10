@@ -10,8 +10,21 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { registerForPushNotificationsAsync } from "../../lib/notifications";
+import {
+  registerForPushNotificationsAsync,
+  sendPushNotificationsAsync,
+} from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
+
+const formatDate = (dateString: string) => {
+  if (!dateString) return "";
+  const d = new Date(dateString);
+  return d.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -33,10 +46,14 @@ export default function HomeScreen() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dbUserRef = useRef<any>(null);
+  useEffect(() => {
+    dbUserRef.current = dbUser;
+  }, [dbUser]);
 
-  const fetchHomeData = async (isSilent = false) => {
+  const fetchHomeData = useCallback(async (isSilent = false) => {
     try {
-      if (!isSilent && !dbUser) {
+      if (!isSilent && !dbUserRef.current) {
         setLoading(true);
       }
 
@@ -92,9 +109,9 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -103,21 +120,11 @@ export default function HomeScreen() {
     const { count } = await supabase
       .from("notifications")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("is_read", false);
+      .eq("userId", user.id)
+      .eq("isRead", false);
 
     setUnreadCount(count || 0);
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "";
-    const d = new Date(dateString);
-    return d.toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  };
+  }, []);
 
   // 💡 PERBAIKAN STRUKTUR REALTIME SUPABASE
   useEffect(() => {
@@ -150,7 +157,7 @@ export default function HomeScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchHomeData, fetchUnreadCount]);
 
   useEffect(() => {
     return () => {
@@ -162,7 +169,7 @@ export default function HomeScreen() {
     useCallback(() => {
       fetchHomeData(true);
       fetchUnreadCount();
-    }, []),
+    }, [fetchHomeData, fetchUnreadCount]),
   );
 
   useEffect(() => {
@@ -176,7 +183,7 @@ export default function HomeScreen() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [params?.showToast]);
+  }, [params?.showToast, router]);
 
   const handleTriggerSOS = async () => {
     if (isSendingSos || sosCooldown > 0) return;
@@ -191,8 +198,9 @@ export default function HomeScreen() {
 
       const { data: siteUsers, error: fetchUsersError } = await supabase
         .from("users")
-        .select("id")
-        .eq("siteId", dbUser.siteId);
+        .select("id, name, expoPushToken")
+        .eq("siteId", dbUser.siteId)
+        .neq("id", dbUser.id);
 
       if (fetchUsersError || !siteUsers || siteUsers.length === 0) {
         Alert.alert(
@@ -203,9 +211,14 @@ export default function HomeScreen() {
       }
 
       const senderName = dbUser.name || "Seorang Karyawan";
+      const nowIso = new Date().toISOString();
       const notificationInserts = siteUsers.map((member) => ({
         userId: member.id,
-        title: "SOS!",
+        type: "SYSTEM",
+        isRead: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        title: "🚨 SOS EMERGENCY!",
         body: `${senderName} membutuhkan bantuan darurat di site kamu!`,
       }));
 
@@ -214,6 +227,34 @@ export default function HomeScreen() {
         .insert(notificationInserts);
 
       if (insertError) throw insertError;
+
+      // 🔔 Kirim Push Notification HANYA ke rekan satu site yang sama
+      const validPushTokens = siteUsers
+        .map((member) => member.expoPushToken)
+        .filter(
+          (t): t is string =>
+            Boolean(t) &&
+            typeof t === "string" &&
+            t.startsWith("ExponentPushToken"),
+        );
+
+      if (validPushTokens.length > 0) {
+        const pushMessages = validPushTokens.map((token) => ({
+          to: token,
+          sound: "default",
+          title: "🚨 SOS EMERGENCY!",
+          body: `${senderName} membutuhkan bantuan darurat di site kamu!`,
+          priority: "high" as const,
+          channelId: "default",
+          data: {
+            type: "sos",
+            senderId: dbUser.id,
+            siteId: dbUser.siteId,
+          },
+        }));
+
+        await sendPushNotificationsAsync(pushMessages);
+      }
 
       setSosToastMessage(
         "Sinyal Darurat SOS berhasil dikirim ke seluruh tim site!",

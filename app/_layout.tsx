@@ -2,6 +2,7 @@ import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native";
+import NotificationPermissionModal from "../components/NotificationPermissionModal";
 import UpdateModal from "../components/UpdateModal";
 import "../global.css";
 import { handleDeviceVerification } from "../lib/device";
@@ -72,7 +73,7 @@ export default function RootLayout() {
     } else if (session && inAuthGroup) {
       router.replace("/(tabs)");
     }
-  }, [session, isInitialized, segments]);
+  }, [session, isInitialized, segments, router]);
 
   // 🌟 LOADING SCREEN (Kunci biar nggak flash)
   if (!isInitialized) {
@@ -98,6 +99,7 @@ export default function RootLayout() {
 
       {/* Modal update otomatis ditaruh di sini */}
       <UpdateModal />
+      <NotificationPermissionModal userId={session?.user?.id} />
     </>
   );
 
