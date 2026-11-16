@@ -54,7 +54,7 @@ export default function NotificationsScreen() {
       } else {
         const formattedData: Notification[] = data.map((item) => ({
           id: item.id,
-          type: item.type as NotificationType,
+          type: (item.type ? String(item.type).toLowerCase() : "system") as NotificationType,
           title: item.title,
           message: item.body,
           time: formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: id }),
@@ -106,7 +106,7 @@ export default function NotificationsScreen() {
             setNotifications((prev) => [
               {
                 id: newRow.id,
-                type: newRow.type as NotificationType,
+                type: (newRow.type ? String(newRow.type).toLowerCase() : "system") as NotificationType,
                 title: newRow.title,
                 message: newRow.body,
                 time: "Baru saja",
@@ -424,6 +424,9 @@ export default function NotificationsScreen() {
               item.metadata?.type === "sos" ||
               item.title?.includes("SOS") ||
               item.message?.includes("darurat");
+            const isItemTemuan =
+              item.metadata?.status === "INCIDENT" ||
+              item.title?.includes("Temuan");
 
             return (
               <TouchableOpacity
@@ -432,21 +435,39 @@ export default function NotificationsScreen() {
                 className={`flex-row p-4 mb-3 rounded-2xl border ${
                   isItemSos
                     ? "bg-red-50/70 border-red-200"
-                    : item.isRead
-                      ? "bg-white border-slate-100"
-                      : "bg-blue-50/50 border-blue-100"
+                    : isItemTemuan
+                      ? "bg-amber-50/70 border-amber-200"
+                      : item.isRead
+                        ? "bg-white border-slate-100"
+                        : "bg-blue-50/50 border-blue-100"
                 }`}
                 onPress={() => handleItemPress(item)}
               >
                 <View
                   className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
-                    isItemSos ? "bg-red-100" : iconConfig.bg
+                    isItemSos
+                      ? "bg-red-100"
+                      : isItemTemuan
+                        ? "bg-amber-100"
+                        : iconConfig.bg
                   }`}
                 >
                   <Ionicons
-                    name={isItemSos ? "warning" : (iconConfig.name as any)}
+                    name={
+                      isItemSos
+                        ? "warning"
+                        : isItemTemuan
+                          ? "alert-circle"
+                          : (iconConfig.name as any)
+                    }
                     size={24}
-                    color={isItemSos ? "#dc2626" : iconConfig.color}
+                    color={
+                      isItemSos
+                        ? "#dc2626"
+                        : isItemTemuan
+                          ? "#d97706"
+                          : iconConfig.color
+                    }
                   />
                 </View>
                 <View className="flex-1">
@@ -455,9 +476,11 @@ export default function NotificationsScreen() {
                       className={`flex-1 text-base mr-2 ${
                         isItemSos
                           ? "font-black text-red-700"
-                          : item.isRead
-                            ? "font-semibold text-slate-700"
-                            : "font-bold text-slate-900"
+                          : isItemTemuan
+                            ? "font-bold text-amber-900"
+                            : item.isRead
+                              ? "font-semibold text-slate-700"
+                              : "font-bold text-slate-900"
                       }`}
                     >
                       {item.title}
@@ -465,7 +488,11 @@ export default function NotificationsScreen() {
                     {!item.isRead && (
                       <View
                         className={`w-2.5 h-2.5 rounded-full mt-1.5 ${
-                          isItemSos ? "bg-red-600" : "bg-blue-500"
+                          isItemSos
+                            ? "bg-red-600"
+                            : isItemTemuan
+                              ? "bg-amber-500"
+                              : "bg-blue-500"
                         }`}
                       />
                     )}

@@ -18,6 +18,7 @@ import {
 
 import { compressToWebP } from "../../lib/imageUtils";
 import { getDistance } from "../../lib/locationUtils";
+import { sendPushNotificationsAsync } from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
 import { sendActivityLog } from "../../lib/tracker";
 
@@ -307,7 +308,7 @@ export default function PatrolInputScreen() {
 
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("siteId")
+        .select("id, name, siteId, role, position")
         .eq("id", userId)
         .single();
       if (userError || !userData?.siteId)
@@ -396,6 +397,128 @@ export default function PatrolInputScreen() {
         .insert(evidenceRecords);
       if (evidenceError)
         throw new Error(`Gagal menyimpan foto bukti: ${evidenceError.message}`);
+
+      // 🔔 JIKA STATUS TEMUAN (INCIDENT), KIRIM NOTIFIKASI & PUSH KE PIMPINAN & SUPER ADMIN
+      if (patrolStatusDB === "INCIDENT") {
+        try {
+          // Ambil rekan/pimpinan satu site & Super Admin secara paralel
+          const [siteRes, superAdminRes] = await Promise.all([
+            supabase
+              .from("users")
+              .select("id, name, role, position, siteId, expoPushToken")
+              .eq("siteId", userData.siteId)
+              .neq("id", userId),
+            supabase
+              .from("users")
+              .select("id, name, role, position, siteId, expoPushToken")
+              .eq("role", "SUPER_ADMIN")
+              .neq("id", userId),
+          ]);
+
+          if (siteRes.error) {
+            console.error("Gagal query user site:", siteRes.error);
+          }
+          if (superAdminRes.error) {
+            console.error("Gagal query super admin:", superAdminRes.error);
+          }
+
+          // Gabungkan daftar penerima tanpa duplikasi
+          const recipientMap = new Map<string, any>();
+
+          // Masukkan Super Admin
+          (superAdminRes.data || []).forEach((u) => {
+            if (u.id !== userId) recipientMap.set(u.id, u);
+          });
+
+          // Filter pimpinan / admin di site terkait
+          (siteRes.data || []).forEach((u) => {
+            if (u.id === userId) return;
+            const roleUpper = String(u.role || "").toUpperCase();
+            const pos = String(u.position || "").toLowerCase();
+            const isLeaderOrAdmin =
+              roleUpper.includes("ADMIN") ||
+              pos.includes("danru") ||
+              pos.includes("leader") ||
+              pos.includes("chief") ||
+              pos.includes("koordinator") ||
+              pos.includes("supervisor") ||
+              pos.includes("admin") ||
+              pos.includes("manager");
+
+            if (isLeaderOrAdmin) {
+              recipientMap.set(u.id, u);
+            }
+          });
+
+          const validRecipients = Array.from(recipientMap.values());
+
+          if (validRecipients.length > 0) {
+            const notifTitle = "⚠️ Temuan Patroli!";
+            const notifBody = `${userData.name || "Petugas Lapangan"} melaporkan temuan di ${dbLocationName || "Titik Patroli"}!`;
+            const notifPayload = {
+              route: `/patrol/${locationId}`,
+              type: "patrol",
+              patrolId: newPatrolId,
+              locationId: locationId as string,
+              locationName: dbLocationName || "Titik Patroli",
+              reporterName: userData.name || "Petugas Lapangan",
+              status: "INCIDENT",
+            };
+
+            const notificationInserts = validRecipients.map((rec) => ({
+              userId: rec.id,
+              type: "SYSTEM", // Menggunakan SYSTEM sesuai enum NotificationType di database Supabase
+              isRead: false,
+              createdAt: localDateTime,
+              updatedAt: localDateTime,
+              title: notifTitle,
+              body: notifBody,
+              metadata: notifPayload,
+            }));
+
+            const { error: insertNotifError } = await supabase
+              .from("notifications")
+              .insert(notificationInserts);
+
+            if (insertNotifError) {
+              console.error(
+                "Gagal menyimpan notifikasi temuan ke database:",
+                insertNotifError,
+              );
+            }
+
+            const pushTokens = validRecipients
+              .map((r) => r.expoPushToken)
+              .filter(
+                (t): t is string =>
+                  Boolean(t) &&
+                  typeof t === "string" &&
+                  t.startsWith("ExponentPushToken"),
+              );
+
+            if (pushTokens.length > 0) {
+              const pushMessages = pushTokens.map((token) => ({
+                to: token,
+                sound: "default",
+                title: notifTitle,
+                body: notifBody,
+                priority: "high" as const,
+                channelId: "default",
+                data: notifPayload,
+              }));
+
+              sendPushNotificationsAsync(pushMessages).catch((pErr) =>
+                console.error(
+                  "Gagal kirim push notification temuan patroli:",
+                  pErr,
+                ),
+              );
+            }
+          }
+        } catch (notifErr) {
+          console.error("Gagal memproses notifikasi temuan patroli:", notifErr);
+        }
+      }
 
       supabase.auth.getSession().then(({ data: currentSession }) => {
         sendActivityLog(
