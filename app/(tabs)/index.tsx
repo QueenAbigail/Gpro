@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -66,7 +67,11 @@ export default function HomeScreen() {
 
       const [userRes, attendanceRes, announcementsRes, readStatusesRes] =
         await Promise.all([
-          supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
+          supabase
+            .from("users")
+            .select("*, sites ( name )")
+            .eq("id", user.id)
+            .maybeSingle(),
           supabase
             .from("attendances")
             .select("*")
@@ -138,9 +143,10 @@ export default function HomeScreen() {
     };
     setup();
 
-    // Inisialisasi dan Subscribe Channel di dalam useEffect
+    // Inisialisasi dan Subscribe Channel di dalam useEffect dengan nama unik
+    const channelName = `home_realtime_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel("home_realtime_channel")
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
@@ -212,6 +218,58 @@ export default function HomeScreen() {
 
       const senderName = dbUser.name || "Seorang Karyawan";
       const nowIso = new Date().toISOString();
+
+      // Coba dapatkan titik GPS pengirim secara cepat jika diizinkan
+      let gpsCoords: { latitude: number; longitude: number } | null = null;
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (loc?.coords) {
+            gpsCoords = {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            };
+          }
+        }
+      } catch (locErr) {
+        console.log("GPS SOS tidak terbaca:", locErr);
+      }
+
+      // Ambil nama site jika tersedia
+      let siteName = "Site Kerja";
+      if (dbUser.siteId) {
+        const { data: sData } = await supabase
+          .from("sites")
+          .select("name")
+          .eq("id", dbUser.siteId)
+          .maybeSingle();
+        if (sData?.name) siteName = sData.name;
+      }
+
+      const resolvedSiteName = dbUser.sites?.name || siteName;
+      const resolvedPosition =
+        dbUser.position || dbUser.role || "Petugas Lapangan";
+      const resolvedAvatar = dbUser.avatar || null;
+
+      const sosPayload = {
+        route: "/profile/notifications",
+        type: "sos",
+        senderId: dbUser.id,
+        senderName: senderName,
+        senderPhone: dbUser.phoneNumber || null,
+        senderPosition: resolvedPosition,
+        senderRole: resolvedPosition,
+        senderAvatar: resolvedAvatar,
+        siteId: dbUser.siteId,
+        siteName: resolvedSiteName,
+        lat: gpsCoords?.latitude || null,
+        lng: gpsCoords?.longitude || null,
+        sentAt: nowIso,
+      };
+
       const notificationInserts = siteUsers.map((member) => ({
         userId: member.id,
         type: "SYSTEM",
@@ -220,6 +278,7 @@ export default function HomeScreen() {
         updatedAt: nowIso,
         title: "🚨 SOS EMERGENCY!",
         body: `${senderName} membutuhkan bantuan darurat di site kamu!`,
+        metadata: sosPayload,
       }));
 
       const { error: insertError } = await supabase
@@ -246,11 +305,7 @@ export default function HomeScreen() {
           body: `${senderName} membutuhkan bantuan darurat di site kamu!`,
           priority: "high" as const,
           channelId: "default",
-          data: {
-            type: "sos",
-            senderId: dbUser.id,
-            siteId: dbUser.siteId,
-          },
+          data: sosPayload,
         }));
 
         await sendPushNotificationsAsync(pushMessages);

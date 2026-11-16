@@ -6,6 +6,7 @@ import NotificationPermissionModal from "../components/NotificationPermissionMod
 import UpdateModal from "../components/UpdateModal";
 import "../global.css";
 import { handleDeviceVerification } from "../lib/device";
+import * as Notifications from "expo-notifications";
 import { registerForPushNotificationsAsync } from "../lib/notifications"; // 💡 1. Import helper notifikasi
 import { supabase } from "../lib/supabase";
 
@@ -74,6 +75,52 @@ export default function RootLayout() {
       router.replace("/(tabs)");
     }
   }, [session, isInitialized, segments, router]);
+
+  // 🔔 Deep Linking: Listener saat user klik banner Push Notification dari status bar HP
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        try {
+          const data = response?.notification?.request?.content?.data;
+          const notifType = String(data?.type || "").toLowerCase();
+
+          if (notifType === "sos") {
+            router.push({
+              pathname: "/profile/notifications",
+              params: { openSosLatest: "true" },
+            } as any);
+            return;
+          }
+
+          const targetRoute = data?.route;
+          if (targetRoute && typeof targetRoute === "string") {
+            if (targetRoute.startsWith("/(tabs)")) {
+              router.navigate(targetRoute as any);
+            } else {
+              router.push(targetRoute as any);
+            }
+          } else if (data?.type) {
+            if (notifType === "patrol") {
+              router.push("/(tabs)/patrol" as any);
+            } else if (notifType === "leave") {
+              router.push("/(tabs)/leave" as any);
+            } else if (notifType === "payroll") {
+              router.push("/(tabs)/profile" as any);
+            } else if (notifType === "system") {
+              router.navigate("/(tabs)" as any);
+            }
+          }
+        } catch (err) {
+          console.error("Error handling notification click:", err);
+        }
+      });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [router]);
 
   // 🌟 LOADING SCREEN (Kunci biar nggak flash)
   if (!isInitialized) {
