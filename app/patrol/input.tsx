@@ -43,12 +43,24 @@ export default function PatrolInputScreen() {
 
   // STATE BUAT CUSTOM MODAL
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalContent, setModalContent] = useState({
+  const [modalContent, setModalContent] = useState<{
+    title: string;
+    message: string;
+    buttonText: string;
+    type: "success" | "error" | "warning" | "info";
+    onPress: () => void;
+    radiusDetails?: {
+      locationName: string;
+      userDistance: number;
+      maxRadius: number;
+    } | null;
+  }>({
     title: "",
     message: "",
     buttonText: "OK",
     type: "info",
     onPress: () => {},
+    radiusDetails: null,
   });
 
   const showModal = (
@@ -57,8 +69,20 @@ export default function PatrolInputScreen() {
     type: "success" | "error" | "warning" | "info" = "info",
     buttonText: string = "OK",
     action: () => void = () => setModalVisible(false),
+    radiusDetails?: {
+      locationName: string;
+      userDistance: number;
+      maxRadius: number;
+    } | null,
   ) => {
-    setModalContent({ title, message, type, buttonText, onPress: action });
+    setModalContent({
+      title,
+      message,
+      type,
+      buttonText,
+      onPress: action,
+      radiusDetails: radiusDetails || null,
+    });
     setModalVisible(true);
   };
 
@@ -158,15 +182,22 @@ export default function PatrolInputScreen() {
           data.longitude,
         );
 
-        if (distance > data.radius) {
+        const maxAllowedRadius = Number(data.radius) || 50;
+
+        if (distance > maxAllowedRadius) {
           showModal(
             "Di Luar Area Patroli",
-            `Anda terdeteksi ${Math.round(distance)} meter dari titik.\nMaksimal jarak adalah ${data.radius} meter. Silakan mendekat ke lokasi!`,
+            "Silakan mendekat ke lokasi titik untuk mulai melakukan patroli.",
             "error",
             "Kembali",
             () => {
               setModalVisible(false);
               router.back();
+            },
+            {
+              locationName: data.name || "Titik Patroli",
+              userDistance: Math.round(distance),
+              maxRadius: maxAllowedRadius,
             },
           );
           return;
@@ -184,6 +215,7 @@ export default function PatrolInputScreen() {
         }
         setIsPageLoading(false);
       } catch (err) {
+        console.error("Error validasi lokasi patroli:", err);
         showModal(
           "Error Jaringan",
           "Gagal menghubungi server atau memvalidasi GPS.",
@@ -197,7 +229,7 @@ export default function PatrolInputScreen() {
       }
     };
     validateAndFetchLocation();
-  }, [locationId, isSimulated]);
+  }, [locationId, isSimulated, router]);
 
   const handleAddPhotoCamera = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
@@ -236,6 +268,7 @@ export default function PatrolInputScreen() {
       const compressedUri = await compressToWebP(uri, 0.7);
       setPhotos((prev) => [...prev, compressedUri]);
     } catch (error) {
+      console.error("Gagal memproses foto:", error);
       showModal("Error", "Gagal memproses foto.", "error");
     } finally {
       setIsCompressing(false);
@@ -640,6 +673,43 @@ export default function PatrolInputScreen() {
             <Text className="text-xl font-bold text-slate-800 mb-2 text-center">
               {modalContent.title}
             </Text>
+
+            {modalContent.radiusDetails && (
+              <View className="w-full items-center mb-2">
+                {/* Badge Nama Titik */}
+                <View className="flex-row items-center bg-blue-50 border border-blue-200/80 px-3 py-1.5 rounded-xl mb-3">
+                  <Ionicons name="location" size={14} color="#2563eb" />
+                  <Text
+                    className="text-xs font-bold text-blue-700 ml-1.5"
+                    numberOfLines={1}
+                  >
+                    {modalContent.radiusDetails.locationName}
+                  </Text>
+                </View>
+
+                {/* Detail Jarak vs Radius Box */}
+                <View className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3 flex-row items-center justify-around mb-2">
+                  <View className="items-center flex-1">
+                    <Text className="text-[10px] text-slate-400 font-medium">
+                      Jarak Anda
+                    </Text>
+                    <Text className="text-sm font-extrabold text-red-600 mt-0.5">
+                      {modalContent.radiusDetails.userDistance} meter
+                    </Text>
+                  </View>
+                  <View className="w-[1px] h-8 bg-slate-200" />
+                  <View className="items-center flex-1">
+                    <Text className="text-[10px] text-slate-400 font-medium">
+                      Radius Maksimal
+                    </Text>
+                    <Text className="text-sm font-extrabold text-slate-700 mt-0.5">
+                      {modalContent.radiusDetails.maxRadius} meter
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             <Text className="text-slate-500 text-center mb-6 leading-relaxed">
               {modalContent.message}
             </Text>

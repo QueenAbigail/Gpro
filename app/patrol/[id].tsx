@@ -42,6 +42,7 @@ export default function PatrolDetailScreen() {
         .select(
           `
           id, 
+          userId,
           checkInTime, 
           status, 
           description,
@@ -53,16 +54,49 @@ export default function PatrolDetailScreen() {
         .order("checkInTime", { ascending: false });
 
       if (reports) {
-        const formatted = reports.map((r) => ({
-          id: r.id,
-          time: new Date(r.checkInTime).toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          status: r.status,
-          note: r.description || "Tidak ada catatan.",
-          photos: r.patrol_evidence.map((e: any) => e.imageUrl),
-        }));
+        const userIds = [
+          ...new Set(
+            reports
+              .map((r: any) => r.userId)
+              .filter((uid: any) => typeof uid === "string" && uid.length > 0),
+          ),
+        ];
+
+        const userMap = new Map<
+          string,
+          { name: string; employeeCode?: string }
+        >();
+        if (userIds.length > 0) {
+          const { data: reporters } = await supabase
+            .from("users")
+            .select("id, name, employeeCode")
+            .in("id", userIds);
+
+          reporters?.forEach((u: any) => {
+            userMap.set(u.id, {
+              name: u.name || "Petugas",
+              employeeCode: u.employeeCode || undefined,
+            });
+          });
+        }
+
+        const formatted = reports.map((r: any) => {
+          const reporter = r.userId ? userMap.get(r.userId) : undefined;
+          return {
+            id: r.id,
+            time: new Date(r.checkInTime).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            reporterName: reporter?.name || "Petugas",
+            reporterCode: reporter?.employeeCode || null,
+            status: r.status,
+            note: r.description || "Tidak ada catatan.",
+            photos: Array.isArray(r.patrol_evidence)
+              ? r.patrol_evidence.map((e: any) => e.imageUrl)
+              : [],
+          };
+        });
         setReportHistory(formatted);
       }
       setLoading(false);
@@ -124,12 +158,28 @@ export default function PatrolDetailScreen() {
                 key={report.id}
                 className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4"
               >
-                <View className="flex-row justify-between items-center mb-3 border-b border-slate-100 pb-3">
-                  <View className="flex-row items-center">
-                    <Ionicons name="time-outline" size={18} color="#64748b" />
-                    <Text className="text-slate-600 font-semibold ml-2">
-                      {report.time} WIB
-                    </Text>
+                <View className="flex-row justify-between items-start mb-3 border-b border-slate-100 pb-3">
+                  <View className="flex-1 mr-3">
+                    <View className="flex-row items-center">
+                      <Ionicons name="time-outline" size={18} color="#64748b" />
+                      <Text className="text-slate-600 font-semibold ml-2">
+                        {report.time} WIB
+                      </Text>
+                    </View>
+                    <View className="flex-row items-center mt-1.5">
+                      <Ionicons
+                        name="person-circle-outline"
+                        size={18}
+                        color="#3b82f6"
+                      />
+                      <Text
+                        className="text-slate-700 text-sm font-semibold ml-2 flex-1"
+                        numberOfLines={1}
+                      >
+                        {report.reporterName}
+                        {report.reporterCode ? ` (${report.reporterCode})` : ""}
+                      </Text>
+                    </View>
                   </View>
                   <View
                     className={`px-3 py-1 rounded-full flex-row items-center ${isSafe ? "bg-green-50" : "bg-red-50"}`}

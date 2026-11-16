@@ -13,6 +13,30 @@ import {
 } from "react-native";
 import { supabase } from "../../../lib/supabase";
 
+type AttendanceSummary = {
+  hadir: number;
+  izin: number;
+  belumAbsen: number;
+};
+
+const summarizeAttendance = (items: any[]): AttendanceSummary => {
+  let hadir = 0;
+  let belumAbsen = 0;
+  let izin = 0;
+
+  items.forEach((item) => {
+    if (item.status === "Hadir" || item.status === "Terlambat") {
+      hadir += 1;
+    } else if (item.status === "Belum Absen") {
+      belumAbsen += 1;
+    } else {
+      izin += 1;
+    }
+  });
+
+  return { hadir, izin, belumAbsen };
+};
+
 export default function AbsenAnggotaScreen() {
   const router = useRouter();
 
@@ -25,6 +49,8 @@ export default function AbsenAnggotaScreen() {
   const [selectedSiteId, setSelectedSiteId] = useState("");
   const [selectedSiteName, setSelectedSiteName] = useState("Head Office");
   const [sitesList, setSitesList] = useState<any[]>([]);
+  const [allAnggotaHO, setAllAnggotaHO] = useState<any[]>([]);
+  const [hasLoadedAllHO, setHasLoadedAllHO] = useState(false);
   const [showSiteModal, setShowSiteModal] = useState(false);
   const [searchSite, setSearchSite] = useState("");
 
@@ -57,15 +83,13 @@ export default function AbsenAnggotaScreen() {
           today.getMonth() + 1,
         ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-        // 1. Query User: filter berdasarkan site (atau semua site jika HO memilih "ALL")
+        // 1. Query User: jika Head Office, tarik seluruh site sekaligus agar rekap modal langsung tersedia
         let usersQuery = supabase
           .from("users")
           .select("id, name, siteId")
           .neq("id", authData.user.id);
 
-        if (isHO && targetSiteId === "ALL") {
-          // Tarik semua user lintas site
-        } else {
+        if (!isHO) {
           usersQuery = usersQuery.eq("siteId", targetSiteId);
         }
 
@@ -73,6 +97,10 @@ export default function AbsenAnggotaScreen() {
         if (usersError) throw usersError;
 
         if (!usersData || usersData.length === 0) {
+          if (isHO) {
+            setAllAnggotaHO([]);
+            setHasLoadedAllHO(true);
+          }
           setDaftarAnggota([]);
           return;
         }
@@ -80,24 +108,31 @@ export default function AbsenAnggotaScreen() {
         const userIds = usersData.map((u) => u.id);
 
         // 2. Tarik Data Pendukung secara Paralel
+        let assignmentsQuery = supabase
+          .from("employee_pattern_assignments")
+          .select("userId, startDate");
+        let attendancesQuery = supabase
+          .from("attendances")
+          .select("userId, actualCheckIn, actualCheckOut, selfieCheckIn")
+          .eq("date", todayDateOnly);
+        let leavesQuery = supabase
+          .from("leaves")
+          .select("userId, leaveType, id")
+          .lte("startDate", today.toISOString())
+          .gte("endDate", today.toISOString());
+
+        if (!isHO) {
+          assignmentsQuery = assignmentsQuery.in("userId", userIds);
+          attendancesQuery = attendancesQuery.in("userId", userIds);
+          leavesQuery = leavesQuery.in("userId", userIds);
+        }
+
         const [assignmentsRes, shiftsRes, attendancesRes, leavesRes, bkoRes] =
           await Promise.all([
-            supabase
-              .from("employee_pattern_assignments")
-              .select("userId, startDate")
-              .in("userId", userIds),
+            assignmentsQuery,
             supabase.from("shifts").select("*"),
-            supabase
-              .from("attendances")
-              .select("userId, actualCheckIn, actualCheckOut, selfieCheckIn")
-              .eq("date", todayDateOnly)
-              .in("userId", userIds),
-            supabase
-              .from("leaves")
-              .select("userId, leaveType, id")
-              .lte("startDate", today.toISOString())
-              .gte("endDate", today.toISOString())
-              .in("userId", userIds),
+            attendancesQuery,
+            leavesQuery,
             supabase
               .from("bko_assignments")
               .select("leaveId")
@@ -116,77 +151,75 @@ export default function AbsenAnggotaScreen() {
         currentSitesList.forEach((s) => sitesMap.set(s.id, s.name));
 
         // --- LOGIC PERHITUNGAN & PENGGABUNGAN DATA ---
-        const currentTime = new Date();
         const processedData: any[] = [];
 
         usersData.forEach((user: any) => {
           // Ambil assignment yang aktif
           const assignment = assignmentsData.find((a) => a.userId === user.id);
-          if (!assignment || !assignment.startDate) return; // Lewati kalau gak punya jadwal
 
-          const startDate = new Date(assignment.startDate);
-          startDate.setHours(0, 0, 0, 0);
-
-          const diffTime = today.getTime() - startDate.getTime();
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          if (diffDays < 0) return;
-
-          // Pola per 8 hari (2 Pagi, 2 Sore, 2 Malam, 2 Off)
-          const cycleDay = diffDays % 8;
+          let isDayOff = false;
           let shiftHariIni: any = null;
+          let shiftOrder = 4;
 
-          if (cycleDay === 0 || cycleDay === 1) {
-            shiftHariIni = shiftsData.find((s) =>
-              s.name?.toLowerCase().includes("pagi"),
-            );
-          } else if (cycleDay === 2 || cycleDay === 3) {
-            shiftHariIni = shiftsData.find((s) =>
-              s.name?.toLowerCase().includes("sore"),
-            );
-          } else if (cycleDay === 4 || cycleDay === 5) {
-            shiftHariIni = shiftsData.find((s) =>
-              s.name?.toLowerCase().includes("malam"),
-            );
-          } else {
-            return; // Day Off, tidak perlu dimasukkan ke list
+          if (assignment?.startDate) {
+            const startDate = new Date(assignment.startDate);
+            startDate.setHours(0, 0, 0, 0);
+
+            const diffTime = today.getTime() - startDate.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays >= 0) {
+              // Pola per 8 hari (2 Pagi, 2 Sore, 2 Malam, 2 Off)
+              const cycleDay = diffDays % 8;
+
+              if (cycleDay === 0 || cycleDay === 1) {
+                shiftOrder = 1;
+                shiftHariIni = shiftsData.find((s) =>
+                  s.name?.toLowerCase().includes("pagi"),
+                );
+              } else if (cycleDay === 2 || cycleDay === 3) {
+                shiftOrder = 2;
+                shiftHariIni = shiftsData.find((s) =>
+                  s.name?.toLowerCase().includes("sore"),
+                );
+              } else if (cycleDay === 4 || cycleDay === 5) {
+                shiftOrder = 3;
+                shiftHariIni = shiftsData.find((s) =>
+                  s.name?.toLowerCase().includes("malam"),
+                );
+              } else {
+                isDayOff = true;
+              }
+            }
           }
 
-          if (!shiftHariIni || !shiftHariIni.startTime || !shiftHariIni.endTime) {
+          const hasValidShift = Boolean(
+            shiftHariIni && shiftHariIni.startTime && shiftHariIni.endTime,
+          );
+
+          const leaveMatch = leavesData.find((l) => l.userId === user.id);
+          const absenMatch = attendancesData.find((a) => a.userId === user.id);
+          const hasAttendanceOrLeave = Boolean(
+            leaveMatch || (absenMatch && absenMatch.actualCheckIn),
+          );
+
+          // Opsi B: Jika tidak punya jadwal aktif hari ini (tanpa schedule / Day Off),
+          // tetap tampilkan jika yang bersangkutan absen masuk atau izin/sakit/BKO hari ini.
+          if (!hasValidShift && !hasAttendanceOrLeave) {
             return;
           }
 
-          // --- FILTER SHIFT JARAK 2 JAM & LEWAT ---
-          const [shiftStartHour, shiftStartMinute] =
-            shiftHariIni.startTime.split(":");
-          const shiftStartDate = new Date(today);
-          shiftStartDate.setHours(
-            parseInt(shiftStartHour, 10),
-            parseInt(shiftStartMinute, 10),
-            0,
-            0,
-          );
-
-          const [shiftEndHour, shiftEndMinute] =
-            shiftHariIni.endTime.split(":");
-          const shiftEndDate = new Date(today);
-          shiftEndDate.setHours(
-            parseInt(shiftEndHour, 10),
-            parseInt(shiftEndMinute, 10),
-            0,
-            0,
-          );
-
-          // Kalau shift malam tembus besok hari
-          if (shiftEndDate < shiftStartDate) {
-            shiftEndDate.setDate(shiftEndDate.getDate() + 1);
-          }
-
-          // Filter: Cuma tampilin kalau (Sekarang >= 2 Jam sebelum mulai) DAN (Sekarang < Jam Selesai Shift)
-          const twoHoursBeforeStart = new Date(
-            shiftStartDate.getTime() - 2 * 60 * 60 * 1000,
-          );
-          if (currentTime < twoHoursBeforeStart || currentTime > shiftEndDate) {
-            return; // Skip! Belum masuk radar 2 jam atau shift udah kelar
+          let shiftStartDate: Date | null = null;
+          if (hasValidShift) {
+            const [shiftStartHour, shiftStartMinute] =
+              shiftHariIni.startTime.split(":");
+            shiftStartDate = new Date(today);
+            shiftStartDate.setHours(
+              parseInt(shiftStartHour, 10),
+              parseInt(shiftStartMinute, 10),
+              0,
+              0,
+            );
           }
 
           // --- TENTUKAN STATUS ---
@@ -195,21 +228,18 @@ export default function AbsenAnggotaScreen() {
           let selfieUrl = null;
 
           // Cek Sakit/Izin/BKO dulu
-          const leaveMatch = leavesData.find((l) => l.userId === user.id);
           if (leaveMatch) {
             if (lakuBKO.includes(leaveMatch.id)) {
               status = "BKO";
             } else {
               status = leaveMatch.leaveType;
             }
-          } else {
-            // Cek Kehadiran Aktual
-            const absenMatch = attendancesData.find((a) => a.userId === user.id);
-            if (absenMatch && absenMatch.actualCheckIn) {
-              const checkInTime = new Date(absenMatch.actualCheckIn);
-              jamAbsen = formatTime(absenMatch.actualCheckIn);
-              selfieUrl = absenMatch.selfieCheckIn;
+          } else if (absenMatch && absenMatch.actualCheckIn) {
+            const checkInTime = new Date(absenMatch.actualCheckIn);
+            jamAbsen = formatTime(absenMatch.actualCheckIn);
+            selfieUrl = absenMatch.selfieCheckIn;
 
+            if (shiftStartDate) {
               // Hitung toleransi keterlambatan (grace period)
               const graceMinutes = Number(
                 shiftHariIni.gracePeriodMinutes ??
@@ -225,22 +255,50 @@ export default function AbsenAnggotaScreen() {
               } else {
                 status = "Hadir";
               }
+            } else {
+              status = "Hadir";
             }
           }
+
+          const shiftLabel = hasValidShift
+            ? `${shiftHariIni.name} (${shiftHariIni.startTime.substring(0, 5)} - ${shiftHariIni.endTime.substring(0, 5)})`
+            : isDayOff
+              ? absenMatch?.actualCheckIn
+                ? "Day Off (Masuk)"
+                : "Day Off"
+              : null;
 
           processedData.push({
             id: user.id,
             nama: user.name,
             siteId: user.siteId,
             siteName: sitesMap.get(user.siteId) || "Head Office",
-            shift: `${shiftHariIni.name} (${shiftHariIni.startTime.substring(0, 5)} - ${shiftHariIni.endTime.substring(0, 5)})`,
+            shift: shiftLabel,
+            shiftOrder,
             status: status,
             jamAbsen: jamAbsen,
             selfieUrl: selfieUrl,
           });
         });
 
-        setDaftarAnggota(processedData);
+        processedData.sort((a, b) => {
+          if (a.shiftOrder !== b.shiftOrder) {
+            return a.shiftOrder - b.shiftOrder;
+          }
+          return (a.nama || "").localeCompare(b.nama || "");
+        });
+
+        if (isHO) {
+          setAllAnggotaHO(processedData);
+          setHasLoadedAllHO(true);
+          setDaftarAnggota(
+            targetSiteId === "ALL"
+              ? processedData
+              : processedData.filter((item) => item.siteId === targetSiteId),
+          );
+        } else {
+          setDaftarAnggota(processedData);
+        }
       } catch (error) {
         console.error("Error tarik data absen anggota:", error);
       } finally {
@@ -310,6 +368,16 @@ export default function AbsenAnggotaScreen() {
     setSelectedSiteName(site.name);
     setShowSiteModal(false);
     setSearchSite("");
+
+    if (isHOUser && hasLoadedAllHO) {
+      setDaftarAnggota(
+        site.id === "ALL"
+          ? allAnggotaHO
+          : allAnggotaHO.filter((item) => item.siteId === site.id),
+      );
+      return;
+    }
+
     fetchAbsenData(site.id, isHOUser, sitesList);
   };
 
@@ -380,6 +448,43 @@ export default function AbsenAnggotaScreen() {
         };
     }
   };
+
+  const currentSummary = summarizeAttendance(daftarAnggota);
+  const allSitesSummary = summarizeAttendance(allAnggotaHO);
+
+  const siteSummaryMap = new Map<string, AttendanceSummary>();
+  if (isHOUser) {
+    const groupedBySite = new Map<string, any[]>();
+    allAnggotaHO.forEach((item) => {
+      const existing = groupedBySite.get(item.siteId) || [];
+      existing.push(item);
+      groupedBySite.set(item.siteId, existing);
+    });
+    sitesList.forEach((site) => {
+      siteSummaryMap.set(
+        site.id,
+        summarizeAttendance(groupedBySite.get(site.id) || []),
+      );
+    });
+  }
+
+  const renderSummaryStack = (summary: AttendanceSummary) => (
+    <View className="items-end">
+      <Text className="text-emerald-600 text-xs font-bold">
+        {summary.hadir} Hadir
+      </Text>
+      {summary.izin > 0 && (
+        <Text className="text-amber-600 text-[11px] font-semibold mt-0.5">
+          {summary.izin} Izin
+        </Text>
+      )}
+      {summary.belumAbsen > 0 && (
+        <Text className="text-slate-500 text-[11px] font-semibold mt-0.5">
+          {summary.belumAbsen} Belum Absen
+        </Text>
+      )}
+    </View>
+  );
 
   return (
     <View className="flex-1 bg-sky-50">
@@ -464,9 +569,9 @@ export default function AbsenAnggotaScreen() {
         )}
 
         <View className="flex-row justify-between items-center mb-4">
-          <View>
+          <View className="flex-1 mr-3">
             <Text className="text-gray-800 font-bold text-lg">
-              Jadwal Shift Terdekat
+              Jadwal & Kehadiran Hari Ini
             </Text>
             <Text className="text-blue-600 text-xs font-bold mt-0.5">
               {new Date().toLocaleDateString("id-ID", {
@@ -476,9 +581,7 @@ export default function AbsenAnggotaScreen() {
               })}
             </Text>
           </View>
-          <Text className="text-gray-500 text-xs font-medium">
-            {daftarAnggota.length} Personel
-          </Text>
+          {renderSummaryStack(currentSummary)}
         </View>
 
         {/* LOADING STATE */}
@@ -487,8 +590,8 @@ export default function AbsenAnggotaScreen() {
         ) : daftarAnggota.length === 0 ? (
           <View className="items-center justify-center py-10 bg-white rounded-2xl border border-dashed border-gray-200">
             <Ionicons name="people-outline" size={36} color="#cbd5e1" />
-            <Text className="text-gray-400 text-sm mt-2">
-              Belum ada personel masuk radar shift di site ini.
+            <Text className="text-gray-400 text-sm mt-2 text-center px-4">
+              Belum ada personel terjadwal atau absen hari ini di site ini.
             </Text>
           </View>
         ) : (
@@ -519,23 +622,29 @@ export default function AbsenAnggotaScreen() {
                   </Text>
 
                   {/* Shift & Badge Site (Khusus mode Semua Site) */}
-                  <View className="flex-row items-center mb-2 flex-wrap">
-                    {selectedSiteId === "ALL" && item.siteName && (
-                      <View className="bg-slate-100 px-2 py-0.5 rounded-md mr-1.5 mb-1 flex-row items-center">
-                        <Ionicons
-                          name="location-sharp"
-                          size={10}
-                          color="#475569"
-                        />
-                        <Text className="text-[10px] font-semibold text-slate-700 ml-0.5">
-                          {item.siteName}
+                  {Boolean(
+                    (selectedSiteId === "ALL" && item.siteName) || item.shift,
+                  ) && (
+                    <View className="flex-row items-center mb-2 flex-wrap">
+                      {Boolean(selectedSiteId === "ALL" && item.siteName) && (
+                        <View className="bg-slate-100 px-2 py-0.5 rounded-md mr-1.5 mb-1 flex-row items-center">
+                          <Ionicons
+                            name="location-sharp"
+                            size={10}
+                            color="#475569"
+                          />
+                          <Text className="text-[10px] font-semibold text-slate-700 ml-0.5">
+                            {item.siteName}
+                          </Text>
+                        </View>
+                      )}
+                      {Boolean(item.shift) && (
+                        <Text className="text-blue-500 text-[10px] font-bold bg-blue-50 px-2 py-1 rounded mb-1">
+                          {item.shift}
                         </Text>
-                      </View>
-                    )}
-                    <Text className="text-blue-500 text-[10px] font-bold bg-blue-50 px-2 py-1 rounded mb-1">
-                      {item.shift}
-                    </Text>
-                  </View>
+                      )}
+                    </View>
+                  )}
 
                   <View className="flex-row items-center">
                     <View
@@ -636,7 +745,7 @@ export default function AbsenAnggotaScreen() {
                       : "bg-gray-50 border border-gray-100"
                   }`}
                 >
-                  <View className="flex-row items-center flex-1">
+                  <View className="flex-row items-center flex-1 mr-3">
                     <View
                       className={`w-10 h-10 rounded-xl items-center justify-center mr-3 ${
                         selectedSiteId === "ALL"
@@ -650,13 +759,14 @@ export default function AbsenAnggotaScreen() {
                         color={selectedSiteId === "ALL" ? "white" : "#475569"}
                       />
                     </View>
-                    <View>
+                    <View className="flex-1">
                       <Text
                         className={`font-bold text-sm ${
                           selectedSiteId === "ALL"
                             ? "text-blue-700"
                             : "text-gray-900"
                         }`}
+                        numberOfLines={1}
                       >
                         Semua Site (All Sites)
                       </Text>
@@ -665,19 +775,28 @@ export default function AbsenAnggotaScreen() {
                       </Text>
                     </View>
                   </View>
-                  {selectedSiteId === "ALL" && (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={22}
-                      color="#2563eb"
-                    />
-                  )}
+                  <View className="flex-row items-center">
+                    {renderSummaryStack(allSitesSummary)}
+                    {selectedSiteId === "ALL" && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={22}
+                        color="#2563eb"
+                        style={{ marginLeft: 10 }}
+                      />
+                    )}
+                  </View>
                 </TouchableOpacity>
               )}
 
               {/* List Masing-Masing Site */}
               {filteredSites.map((site) => {
                 const isSelected = selectedSiteId === site.id;
+                const siteSummary = siteSummaryMap.get(site.id) || {
+                  hadir: 0,
+                  izin: 0,
+                  belumAbsen: 0,
+                };
                 return (
                   <TouchableOpacity
                     key={site.id}
@@ -688,7 +807,7 @@ export default function AbsenAnggotaScreen() {
                         : "bg-gray-50 border border-gray-100"
                     }`}
                   >
-                    <View className="flex-row items-center flex-1">
+                    <View className="flex-row items-center flex-1 mr-3">
                       <View
                         className={`w-10 h-10 rounded-xl items-center justify-center mr-3 ${
                           isSelected ? "bg-blue-600" : "bg-gray-200"
@@ -700,7 +819,7 @@ export default function AbsenAnggotaScreen() {
                           color={isSelected ? "white" : "#475569"}
                         />
                       </View>
-                      <View className="flex-1 mr-2">
+                      <View className="flex-1">
                         <Text
                           className={`font-bold text-sm ${
                             isSelected ? "text-blue-700" : "text-gray-900"
@@ -716,13 +835,17 @@ export default function AbsenAnggotaScreen() {
                         )}
                       </View>
                     </View>
-                    {isSelected && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color="#2563eb"
-                      />
-                    )}
+                    <View className="flex-row items-center">
+                      {renderSummaryStack(siteSummary)}
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color="#2563eb"
+                          style={{ marginLeft: 10 }}
+                        />
+                      )}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -790,11 +913,13 @@ export default function AbsenAnggotaScreen() {
 
             <View className="p-5 items-center">
               {selectedAnggota?.selfieUrl ? (
-                <Image
-                  source={{ uri: selectedAnggota.selfieUrl }}
-                  className="w-full h-80 rounded-2xl bg-gray-100"
-                  resizeMode="cover"
-                />
+                <View className="w-full rounded-2xl bg-slate-100 overflow-hidden">
+                  <Image
+                    source={{ uri: selectedAnggota.selfieUrl }}
+                    style={{ width: "100%", height: 440 }}
+                    resizeMode="contain"
+                  />
+                </View>
               ) : (
                 <View className="w-full h-80 rounded-2xl bg-gray-100 items-center justify-center border border-gray-200 border-dashed">
                   <Ionicons
