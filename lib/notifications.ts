@@ -388,3 +388,236 @@ export async function sendLeaveSubmissionNotificationsAsync(
     return { success: false, error: err };
   }
 }
+
+export interface BkoTakenNotifParams {
+  bkoId?: string | null;
+  leaveId: string;
+  substituteId: string;
+  replacedUserId: string;
+  replacedUserName: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+}
+
+export async function sendBkoTakenNotificationsAsync(
+  params: BkoTakenNotifParams,
+) {
+  try {
+    // 1. Ambil profil lengkap personel yang mengambil backup (substitute) + nama site
+    const { data: substitute } = await supabase
+      .from("users")
+      .select("id, name, position, role, avatar, siteId")
+      .eq("id", params.substituteId)
+      .maybeSingle();
+
+    let siteName = "Site Penempatan";
+    if (substitute?.siteId) {
+      const { data: siteData } = await supabase
+        .from("sites")
+        .select("name")
+        .eq("id", substitute.siteId)
+        .maybeSingle();
+      if (siteData?.name) siteName = siteData.name;
+    }
+
+    const substituteName = substitute?.name || "Personel";
+    const substitutePosition =
+      substitute?.position || substitute?.role || "Personel Lapangan";
+    const substituteAvatar = substitute?.avatar || null;
+
+    const cleanStart = String(params.startDate || "").split("T")[0];
+    const cleanEnd = String(params.endDate || params.startDate || "").split(
+      "T",
+    )[0];
+    const startFormatted = formatIndoDateShort(cleanStart);
+    const endFormatted = formatIndoDateShort(cleanEnd);
+    const dateLabel =
+      cleanStart === cleanEnd
+        ? startFormatted
+        : `${startFormatted} - ${endFormatted}`;
+
+    const nowIso = new Date().toISOString();
+
+    const baseMetadata = {
+      type: "bko",
+      route: "/profile/notifications",
+      bkoId: params.bkoId || null,
+      leaveId: params.leaveId,
+      substituteId: params.substituteId,
+      substituteName,
+      substitutePosition,
+      substituteAvatar,
+      siteName,
+      replacedUserId: params.replacedUserId,
+      replacedUserName: params.replacedUserName || "Karyawan",
+      leaveType: params.leaveType || "Izin",
+      startDate: cleanStart,
+      endDate: cleanEnd,
+      reason: params.reason || "Tanpa keterangan",
+      sentAt: nowIso,
+    };
+
+    // 2. Query paralel: karyawan yang digantikan, Super Admin/HR, dan rekan satu site (untuk filter upper level)
+    const [replacedRes, adminRes, siteUsersRes] = await Promise.all([
+      params.replacedUserId && params.replacedUserId !== params.substituteId
+        ? supabase
+            .from("users")
+            .select("id, name, expoPushToken")
+            .eq("id", params.replacedUserId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from("users")
+        .select("id, name, role, expoPushToken")
+        .in("role", ["SUPER_ADMIN", "HR_ADMIN"])
+        .neq("id", params.substituteId),
+      substitute?.siteId
+        ? supabase
+            .from("users")
+            .select("id, name, role, position, siteId, expoPushToken")
+            .eq("siteId", substitute.siteId)
+            .neq("id", params.substituteId)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (adminRes.error) {
+      console.error("Gagal query Super Admin / HR untuk BKO:", adminRes.error);
+    }
+    if (siteUsersRes.error) {
+      console.error("Gagal query upper level site untuk BKO:", siteUsersRes.error);
+    }
+
+    const notificationInserts: any[] = [];
+    const pushMessages: PushMessagePayload[] = [];
+    const notifiedIds = new Set<string>();
+    notifiedIds.add(params.substituteId); // Jangan pernah kirim ke diri sendiri
+
+    // 3. Prioritas 1: Karyawan yang digantikan (pesan personal)
+    if (replacedRes.data && !notifiedIds.has(replacedRes.data.id)) {
+      const rep = replacedRes.data;
+      notifiedIds.add(rep.id);
+      const repTitle = "Jadwal Anda Sudah Dibackup";
+      const repBody = `${substituteName} mengambil jadwal backup menggantikan Anda pada ${dateLabel}.`;
+      const repMetadata = {
+        ...baseMetadata,
+        targetAudience: "replaced",
+      };
+
+      notificationInserts.push({
+        userId: rep.id,
+        type: "SYSTEM",
+        isRead: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        title: repTitle,
+        body: repBody,
+        metadata: repMetadata,
+      });
+
+      if (
+        rep.expoPushToken &&
+        typeof rep.expoPushToken === "string" &&
+        rep.expoPushToken.startsWith("ExponentPushToken")
+      ) {
+        pushMessages.push({
+          to: rep.expoPushToken,
+          sound: "default",
+          title: repTitle,
+          body: repBody,
+          priority: "high",
+          data: repMetadata,
+        });
+      }
+    }
+
+    // 4. Prioritas 2: Super Admin, HR Admin, dan Upper Level di site tersebut
+    const upperRecipients: any[] = [];
+    (adminRes.data || []).forEach((u) => {
+      if (!notifiedIds.has(u.id)) {
+        notifiedIds.add(u.id);
+        upperRecipients.push(u);
+      }
+    });
+
+    (siteUsersRes.data || []).forEach((u) => {
+      if (notifiedIds.has(u.id)) return;
+      const roleUpper = String(u.role || "").toUpperCase();
+      const pos = String(u.position || "").toLowerCase();
+      const isUpperLevel =
+        roleUpper.includes("ADMIN") ||
+        pos.includes("danru") ||
+        pos.includes("leader") ||
+        pos.includes("chief") ||
+        pos.includes("koordinator") ||
+        pos.includes("supervisor") ||
+        pos.includes("admin") ||
+        pos.includes("manager");
+
+      if (isUpperLevel) {
+        notifiedIds.add(u.id);
+        upperRecipients.push(u);
+      }
+    });
+
+    const adminTitle = "Backup BKO Diambil";
+    const adminBody = `${substituteName} mengambil jadwal backup menggantikan ${params.replacedUserName || "karyawan"} (${dateLabel}).`;
+    const adminMetadata = {
+      ...baseMetadata,
+      targetAudience: "admin",
+    };
+
+    upperRecipients.forEach((rec) => {
+      notificationInserts.push({
+        userId: rec.id,
+        type: "SYSTEM",
+        isRead: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        title: adminTitle,
+        body: adminBody,
+        metadata: adminMetadata,
+      });
+
+      if (
+        rec.expoPushToken &&
+        typeof rec.expoPushToken === "string" &&
+        rec.expoPushToken.startsWith("ExponentPushToken")
+      ) {
+        pushMessages.push({
+          to: rec.expoPushToken,
+          sound: "default",
+          title: adminTitle,
+          body: adminBody,
+          priority: "high",
+          data: adminMetadata,
+        });
+      }
+    });
+
+    // 5. Insert ke tabel notifications Supabase
+    if (notificationInserts.length > 0) {
+      const { error: insertNotifError } = await supabase
+        .from("notifications")
+        .insert(notificationInserts);
+
+      if (insertNotifError) {
+        console.error(
+          "Gagal menyimpan notifikasi BKO ke DB:",
+          insertNotifError,
+        );
+      }
+    }
+
+    // 6. Tembak Push Notification ke Expo
+    if (pushMessages.length > 0) {
+      await sendPushNotificationsAsync(pushMessages);
+    }
+
+    return { success: true, count: notificationInserts.length };
+  } catch (err) {
+    console.error("Gagal memproses notifikasi BKO:", err);
+    return { success: false, error: err };
+  }
+}

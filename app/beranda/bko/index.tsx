@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { sendBkoTakenNotificationsAsync } from "../../../lib/notifications";
 import { supabase } from "../../../lib/supabase";
 
 // Helper: Hitung selisih hari
@@ -113,9 +114,12 @@ export default function AmbilBKOScreen() {
           .filter((item: any) => !daftarIdSudahDiambil.includes(item.id))
           .map((item: any) => ({
             id: item.id,
+            userId: item.userId,
             nama: mapNamaTeman[item.userId] || "Karyawan",
             tipe: item.leaveType,
             alasan: item.reason || "Tanpa keterangan",
+            startDate: item.startDate,
+            endDate: item.endDate,
             tanggal: formatRentangTanggal(item.startDate, item.endDate),
             durasi: getBedaHari(item.startDate, item.endDate),
             status: item.status,
@@ -136,6 +140,8 @@ export default function AmbilBKOScreen() {
 
   const handleAmbilBKO = async () => {
     if (!selectedBKO) return;
+
+    const selectedItem = daftarBerhalangan.find((i) => i.id === selectedBKO);
 
     console.log(">> 🚀 Tombol dipencet! Mulai eksekusi...");
     setIsLoading(true);
@@ -167,6 +173,21 @@ export default function AmbilBKOScreen() {
       }
 
       console.log(">> 3. ✅ Sukses insert BKO ke database!");
+
+      // Kirim Notifikasi & Push ke Karyawan yang Digantikan, Super Admin/HR, & Upper Level Site
+      if (selectedItem) {
+        await sendBkoTakenNotificationsAsync({
+          bkoId: data?.[0]?.id || null,
+          leaveId: selectedItem.id,
+          substituteId: user.id,
+          replacedUserId: selectedItem.userId,
+          replacedUserName: selectedItem.nama,
+          leaveType: selectedItem.tipe,
+          startDate: selectedItem.startDate,
+          endDate: selectedItem.endDate,
+          reason: selectedItem.alasan,
+        });
+      }
 
       await fetchBKOData();
       setSelectedBKO(null);

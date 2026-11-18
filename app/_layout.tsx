@@ -110,6 +110,17 @@ export default function RootLayout() {
           return;
         }
 
+        if (notifType === "bko" || Boolean(data?.bkoId)) {
+          router.push({
+            pathname: "/profile/notifications",
+            params: {
+              openBkoLatest: "true",
+              openBkoId: data?.bkoId ? String(data.bkoId) : "",
+            },
+          } as any);
+          return;
+        }
+
         if (
           notifType === "leave" ||
           notifType === "approval" ||

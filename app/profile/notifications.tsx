@@ -28,7 +28,19 @@ interface Notification {
   metadata?: Record<string, any> | null;
 }
 
+const isBkoNotification = (item: Notification) => {
+  const metaType = String(item.metadata?.type || "").toLowerCase();
+  const titleLower = String(item.title || "").toLowerCase();
+  return (
+    metaType === "bko" ||
+    Boolean(item.metadata?.bkoId) ||
+    titleLower.includes("backup bko") ||
+    titleLower.includes("dibackup")
+  );
+};
+
 const isLeaveNotification = (item: Notification) => {
+  if (isBkoNotification(item)) return false;
   const t = String(item.type || "").toLowerCase();
   const titleLower = String(item.title || "").toLowerCase();
   return (
@@ -42,10 +54,10 @@ const isLeaveNotification = (item: Notification) => {
   );
 };
 
-// Format judul agar bersih & korporat untuk notifikasi perizinan (tetap pertahankan emoji SOS & Temuan Patroli)
+// Format judul agar bersih & korporat untuk notifikasi perizinan & BKO (tetap pertahankan emoji SOS & Temuan Patroli)
 const formatDisplayTitle = (item: Notification) => {
   const rawTitle = String(item.title || "");
-  if (!isLeaveNotification(item)) return rawTitle;
+  if (!isLeaveNotification(item) && !isBkoNotification(item)) return rawTitle;
 
   const lower = rawTitle.toLowerCase();
   if (lower.includes("leave request approved")) {
@@ -56,7 +68,7 @@ const formatDisplayTitle = (item: Notification) => {
   }
 
   return rawTitle
-    .replace(/^[\s✅❌📋🏥🔄✔️✖️☑️]+/u, "")
+    .replace(/^[\s✅❌📋🏥🔄🛡️✔️✖️☑️]+/u, "")
     .replace(/!+$/, "")
     .trim();
 };
@@ -77,6 +89,11 @@ export default function NotificationsScreen() {
   const [liveLeaveApplicant, setLiveLeaveApplicant] = useState<any>(null);
   const [isLeaveLoading, setIsLeaveLoading] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
+
+  // State untuk Modal Detail Backup BKO
+  const [activeBkoModal, setActiveBkoModal] = useState<Notification | null>(null);
+  const [liveBkoSubstitute, setLiveBkoSubstitute] = useState<any>(null);
+  const [isBkoLoading, setIsBkoLoading] = useState(false);
 
   // 1. Fetch data awal
   const fetchNotifications = useCallback(async () => {
@@ -118,6 +135,38 @@ export default function NotificationsScreen() {
           }
         }
 
+        // Jika dibuka dari push notif Backup BKO, buka modal otomatis
+        if (params?.openBkoLatest === "true" || params?.openBkoId) {
+          const targetBkoId = params?.openBkoId ? String(params.openBkoId) : "";
+          const bkoItem =
+            (targetBkoId
+              ? formattedData.find(
+                  (n) =>
+                    n.metadata?.bkoId &&
+                    String(n.metadata.bkoId) === targetBkoId,
+                )
+              : null) || formattedData.find((n) => isBkoNotification(n));
+
+          if (bkoItem) {
+            setActiveBkoModal(bkoItem);
+            if (!bkoItem.isRead) {
+              supabase
+                .from("notifications")
+                .update({ isRead: true, updatedAt: new Date().toISOString() })
+                .eq("id", bkoItem.id)
+                .then(({ error: readErr }) => {
+                  if (!readErr) {
+                    setNotifications((prev) =>
+                      prev.map((n) =>
+                        n.id === bkoItem.id ? { ...n, isRead: true } : n,
+                      ),
+                    );
+                  }
+                });
+            }
+          }
+        }
+
         // Jika dibuka dari push notif Perizinan (Cuti / Izin / Sakit / Tukar Shift), buka modal otomatis
         if (params?.openLeaveLatest === "true" || params?.openLeaveId) {
           const targetLeaveId = params?.openLeaveId ? String(params.openLeaveId) : "";
@@ -125,6 +174,7 @@ export default function NotificationsScreen() {
             (targetLeaveId
               ? formattedData.find(
                   (n) =>
+                    !isBkoNotification(n) &&
                     n.metadata?.leaveId &&
                     String(n.metadata.leaveId) === targetLeaveId,
                 )
@@ -153,7 +203,13 @@ export default function NotificationsScreen() {
       }
     }
     setLoading(false);
-  }, [params?.openSosLatest, params?.openLeaveLatest, params?.openLeaveId]);
+  }, [
+    params?.openSosLatest,
+    params?.openBkoLatest,
+    params?.openBkoId,
+    params?.openLeaveLatest,
+    params?.openLeaveId,
+  ]);
 
   // 2. Setup Realtime dengan nama channel unik & Cleanup yang aman
   useEffect(() => {
@@ -494,6 +550,96 @@ export default function NotificationsScreen() {
     };
   };
 
+  // 4c. Otomatis tarik profil terbaru personel pengganti BKO saat modal dibuka
+  useEffect(() => {
+    if (!activeBkoModal) {
+      setLiveBkoSubstitute(null);
+      setIsBkoLoading(false);
+      return;
+    }
+
+    const loadSubstituteDetails = async () => {
+      try {
+        setIsBkoLoading(true);
+        const meta = activeBkoModal.metadata || {};
+        const substituteId = meta.substituteId;
+        if (substituteId) {
+          const { data: uData } = await supabase
+            .from("users")
+            .select("id, name, avatar, position, role, siteId")
+            .eq("id", substituteId)
+            .maybeSingle();
+
+          if (uData) {
+            let siteName = meta.siteName || null;
+            if (uData.siteId) {
+              const { data: sData } = await supabase
+                .from("sites")
+                .select("name")
+                .eq("id", uData.siteId)
+                .maybeSingle();
+              if (sData?.name) siteName = sData.name;
+            }
+            setLiveBkoSubstitute({ ...uData, siteName });
+          }
+        }
+      } catch (err) {
+        console.error("Gagal load profil personel BKO:", err);
+      } finally {
+        setIsBkoLoading(false);
+      }
+    };
+
+    loadSubstituteDetails();
+  }, [activeBkoModal]);
+
+  const getBkoDetails = (notif: Notification | null) => {
+    const meta = notif?.metadata || {};
+    const replacedUserId = meta.replacedUserId || null;
+    const isReplacedViewer =
+      meta.targetAudience === "replaced" ||
+      Boolean(
+        currentUserId && replacedUserId && currentUserId === replacedUserId,
+      );
+
+    const substituteName =
+      liveBkoSubstitute?.name || meta.substituteName || "Personel";
+    const substitutePosition =
+      liveBkoSubstitute?.position ||
+      meta.substitutePosition ||
+      liveBkoSubstitute?.role ||
+      "Personel Lapangan";
+    const substituteAvatar =
+      liveBkoSubstitute?.avatar || meta.substituteAvatar || null;
+    const siteName =
+      liveBkoSubstitute?.siteName || meta.siteName || "Site Penempatan";
+
+    const replacedUserName = meta.replacedUserName || "Karyawan";
+    const leaveType = meta.leaveType || "Izin";
+    const isSakit = String(leaveType).toLowerCase() === "sakit";
+    const startDate = meta.startDate || null;
+    const endDate = meta.endDate || startDate;
+    const reason =
+      meta.reason || notif?.message || "Tanpa keterangan.";
+
+    return {
+      isReplacedViewer,
+      substituteName,
+      substitutePosition,
+      substituteAvatar,
+      siteName,
+      replacedUserName,
+      leaveType,
+      isSakit,
+      dateRangeText:
+        startDate && endDate && startDate !== endDate
+          ? `${formatShortIndoDate(startDate)} - ${formatShortIndoDate(endDate)}`
+          : formatShortIndoDate(startDate),
+      durationText: calculateLeaveDuration(startDate, endDate),
+      reason,
+    };
+  };
+
   // 5. Helper data SOS & Quick Actions
   const getSosDetails = (notif: Notification | null) => {
     if (!notif) {
@@ -629,6 +775,12 @@ export default function NotificationsScreen() {
       return;
     }
 
+    // 2a. Cek apakah notifikasi Backup BKO -> Munculkan BKO Modal Pop-up!
+    if (isBkoNotification(item)) {
+      setActiveBkoModal(item);
+      return;
+    }
+
     // 2b. Cek apakah notifikasi Perizinan / Approval -> Munculkan Leave Modal Pop-up!
     if (isLeaveNotification(item)) {
       setActiveLeaveModal(item);
@@ -678,6 +830,7 @@ export default function NotificationsScreen() {
 
   const sosData = getSosDetails(activeSosModal);
   const leaveData = getLeaveDetails(activeLeaveModal);
+  const bkoData = getBkoDetails(activeBkoModal);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -715,6 +868,7 @@ export default function NotificationsScreen() {
             const isItemTemuan =
               item.metadata?.status === "INCIDENT" ||
               item.title?.includes("Temuan");
+            const isItemBko = isBkoNotification(item);
             const isItemLeave = isLeaveNotification(item);
             const itemLeaveType = String(item.metadata?.leaveType || "");
             const itemStatusUpper = String(
@@ -744,49 +898,55 @@ export default function NotificationsScreen() {
               ? "bg-red-100"
               : isItemTemuan
                 ? "bg-amber-100"
-                : isItemLeaveApproved
-                  ? "bg-emerald-50"
-                  : isItemLeaveRejected
-                    ? "bg-red-50"
-                    : isItemLeave
-                      ? isItemSakit
-                        ? "bg-red-50"
-                        : isItemTukar
-                          ? "bg-emerald-50"
-                          : "bg-blue-50"
-                      : iconConfig.bg;
+                : isItemBko
+                  ? "bg-indigo-50"
+                  : isItemLeaveApproved
+                    ? "bg-emerald-50"
+                    : isItemLeaveRejected
+                      ? "bg-red-50"
+                      : isItemLeave
+                        ? isItemSakit
+                          ? "bg-red-50"
+                          : isItemTukar
+                            ? "bg-emerald-50"
+                            : "bg-blue-50"
+                        : iconConfig.bg;
 
             const itemIconName = isItemSos
               ? "warning"
               : isItemTemuan
                 ? "alert-circle"
-                : isItemLeaveApproved
-                  ? "checkmark-circle"
-                  : isItemLeaveRejected
-                    ? "close-circle"
-                    : isItemLeave
-                      ? isItemSakit
-                        ? "medkit"
-                        : isItemTukar
-                          ? "swap-horizontal"
-                          : "document-text"
-                      : iconConfig.name;
+                : isItemBko
+                  ? "shield-checkmark"
+                  : isItemLeaveApproved
+                    ? "checkmark-circle"
+                    : isItemLeaveRejected
+                      ? "close-circle"
+                      : isItemLeave
+                        ? isItemSakit
+                          ? "medkit"
+                          : isItemTukar
+                            ? "swap-horizontal"
+                            : "document-text"
+                        : iconConfig.name;
 
             const itemIconColor = isItemSos
               ? "#dc2626"
               : isItemTemuan
                 ? "#d97706"
-                : isItemLeaveApproved
-                  ? "#059669"
-                  : isItemLeaveRejected
-                    ? "#dc2626"
-                    : isItemLeave
-                      ? isItemSakit
-                        ? "#ef4444"
-                        : isItemTukar
-                          ? "#10b981"
-                          : "#2563eb"
-                      : iconConfig.color;
+                : isItemBko
+                  ? "#4f46e5"
+                  : isItemLeaveApproved
+                    ? "#059669"
+                    : isItemLeaveRejected
+                      ? "#dc2626"
+                      : isItemLeave
+                        ? isItemSakit
+                          ? "#ef4444"
+                          : isItemTukar
+                            ? "#10b981"
+                            : "#2563eb"
+                        : iconConfig.color;
 
             return (
               <TouchableOpacity
@@ -1383,6 +1543,186 @@ export default function NotificationsScreen() {
               resizeMode="contain"
             />
           )}
+        </View>
+      </Modal>
+
+      {/* 🛡️ BKO BACKUP DETAIL MODAL (POP-UP MELAYANG) */}
+      <Modal
+        visible={!!activeBkoModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setActiveBkoModal(null)}
+      >
+        <View className="flex-1 bg-black/70 justify-center items-center px-5">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-slate-100 max-h-[86%]">
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ alignItems: "center" }}
+            >
+              {/* Semantic Indigo Icon Bubble */}
+              <View className="w-14 h-14 rounded-full bg-indigo-100 border border-indigo-200 items-center justify-center mb-3">
+                <Ionicons name="shield-checkmark" size={28} color="#4f46e5" />
+              </View>
+
+              {/* Title & Subtitle (Adaptif: Admin/Danru vs Karyawan yang Digantikan) */}
+              <Text className="text-lg font-extrabold text-slate-950 tracking-tight text-center mb-1">
+                {bkoData.isReplacedViewer
+                  ? "JADWAL ANDA DIBACKUP"
+                  : "BACKUP BKO DIAMBIL"}
+              </Text>
+              <Text className="text-xs text-slate-500 text-center mb-4">
+                {bkoData.isReplacedViewer
+                  ? `${bkoData.substituteName} mengambil jadwal backup menggantikan Anda`
+                  : "Personel mengambil jadwal backup pengganti di site"}
+              </Text>
+
+              {/* Kartu Profil Personel Pengganti (Substitute) */}
+              <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-3">
+                <Text className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mb-2">
+                  {bkoData.isReplacedViewer
+                    ? "Digantikan Oleh"
+                    : "Personel Pengganti (Backup)"}
+                </Text>
+                <View className="flex-row items-center">
+                  <View className="w-11 h-11 rounded-full overflow-hidden bg-indigo-600 items-center justify-center mr-3 border border-slate-200">
+                    {isBkoLoading ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : bkoData.substituteAvatar ? (
+                      <Image
+                        source={{ uri: bkoData.substituteAvatar }}
+                        className="w-full h-full"
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text className="text-white font-extrabold text-sm">
+                        {getInitials(bkoData.substituteName)}
+                      </Text>
+                    )}
+                  </View>
+                  <View className="flex-1 min-w-0">
+                    <View className="flex-row items-center justify-between">
+                      <Text
+                        className="text-sm font-bold text-slate-900 flex-1 mr-2"
+                        numberOfLines={1}
+                      >
+                        {bkoData.substituteName}
+                      </Text>
+                      <View className="bg-indigo-100 px-2 py-0.5 rounded-full">
+                        <Text className="text-[10px] text-indigo-700 font-semibold">
+                          {bkoData.substitutePosition}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      className="text-xs text-slate-600 font-medium mt-0.5"
+                      numberOfLines={1}
+                    >
+                      {bkoData.siteName}
+                    </Text>
+                    <Text className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      {activeBkoModal?.time || "Baru saja"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Kotak Rincian Backup (Polos tanpa kotak status) */}
+              <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-4">
+                {bkoData.isReplacedViewer ? (
+                  <View className="flex-row items-center justify-between border-b border-slate-200 pb-2.5 mb-2.5">
+                    <Text className="text-xs text-slate-500 font-medium">
+                      Jenis Pengajuan
+                    </Text>
+                    <View
+                      className={`px-2.5 py-0.5 rounded-full border ${
+                        bkoData.isSakit
+                          ? "bg-red-50 border-red-100"
+                          : "bg-blue-50 border-blue-100"
+                      }`}
+                    >
+                      <Text
+                        className={`text-[10px] font-bold ${
+                          bkoData.isSakit ? "text-red-600" : "text-blue-600"
+                        }`}
+                      >
+                        {bkoData.leaveType}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View className="flex-row items-center justify-between border-b border-slate-200 pb-2.5 mb-2.5">
+                    <Text className="text-xs text-slate-500 font-medium">
+                      Menggantikan
+                    </Text>
+                    <View className="flex-row items-center flex-1 justify-end ml-2">
+                      <Text
+                        className="text-xs font-bold text-slate-900 mr-1.5"
+                        numberOfLines={1}
+                      >
+                        {bkoData.replacedUserName}
+                      </Text>
+                      <View
+                        className={`px-2 py-0.5 rounded-full border ${
+                          bkoData.isSakit
+                            ? "bg-red-50 border-red-100"
+                            : "bg-blue-50 border-blue-100"
+                        }`}
+                      >
+                        <Text
+                          className={`text-[10px] font-bold ${
+                            bkoData.isSakit ? "text-red-600" : "text-blue-600"
+                          }`}
+                        >
+                          {bkoData.leaveType}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Periode & Durasi Backup */}
+                <View className="flex-row items-start justify-between border-b border-slate-200 pb-2.5 mb-2.5">
+                  <Text className="text-xs text-slate-500 font-medium">
+                    Periode Backup
+                  </Text>
+                  <View className="items-end flex-1 ml-2">
+                    <Text className="text-xs font-bold text-slate-900 text-right">
+                      {bkoData.dateRangeText}
+                    </Text>
+                    <View className="bg-indigo-50 px-2 py-0.5 rounded mt-1">
+                      <Text className="text-[10px] font-semibold text-indigo-600">
+                        Durasi: {bkoData.durationText}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Keterangan */}
+                <View>
+                  <Text className="text-xs text-slate-500 font-medium mb-1">
+                    {bkoData.isReplacedViewer
+                      ? "Keterangan"
+                      : "Keterangan Ketidakhadiran"}
+                  </Text>
+                  <View className="bg-white p-2.5 rounded-xl border border-slate-200">
+                    <Text className="text-xs text-slate-700 font-semibold leading-relaxed">
+                      {bkoData.reason}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Tombol Tutup (Target sentuh lega 48px + hitSlop) */}
+              <TouchableOpacity
+                onPress={() => setActiveBkoModal(null)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 16, left: 20, right: 20 }}
+                className="w-full h-12 bg-slate-100 active:bg-slate-200 rounded-2xl items-center justify-center border border-slate-200"
+              >
+                <Text className="text-xs font-bold text-slate-700">Tutup</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </View>
