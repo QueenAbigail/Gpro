@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { sendLeaveSubmissionNotificationsAsync } from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
 
 interface ModalConfig {
@@ -222,19 +223,40 @@ export default function TukarShiftScreen() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("Sesi tidak valid");
 
-      const { error } = await supabase.from("leaves").insert({
-        userId: authData.user.id,
+      const myShiftDateDB = formatForDB(myShiftDate);
+      const targetShiftDateDB = formatForDB(targetShiftDate);
+
+      const { data: insertedLeave, error } = await supabase
+        .from("leaves")
+        .insert({
+          userId: authData.user.id,
+          leaveType: "TUKAR_SHIFT",
+          startDate: myShiftDateDB,
+          endDate: targetShiftDateDB,
+          reason: reason.trim(),
+          status: "Pending",
+          replacementUserId: replacementUser.id,
+          originalShiftType: myShiftType,
+          targetShiftType: targetShiftType,
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Kirim Notifikasi & Push ke Rekan Pengganti & Super Admin / HR
+      await sendLeaveSubmissionNotificationsAsync({
+        leaveId: insertedLeave?.id || null,
+        applicantId: authData.user.id,
         leaveType: "TUKAR_SHIFT",
-        startDate: formatForDB(myShiftDate),
-        endDate: formatForDB(targetShiftDate),
+        startDate: myShiftDateDB,
+        endDate: targetShiftDateDB,
         reason: reason.trim(),
-        status: "Pending",
         replacementUserId: replacementUser.id,
+        replacementUserName: replacementUser.name,
         originalShiftType: myShiftType,
         targetShiftType: targetShiftType,
       });
-
-      if (error) throw error;
 
       setIsLoading(false);
       showAlert(

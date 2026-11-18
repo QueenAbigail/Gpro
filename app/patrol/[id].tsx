@@ -14,7 +14,11 @@ import { supabase } from "../../lib/supabase";
 
 export default function PatrolDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, patrolId } = useLocalSearchParams();
+  const targetPatrolId =
+    typeof patrolId === "string" && patrolId.trim().length > 0
+      ? patrolId.trim()
+      : null;
 
   const [loading, setLoading] = useState(true);
   const [locationName, setLocationName] = useState("Memuat...");
@@ -34,24 +38,32 @@ export default function PatrolDetailScreen() {
 
       if (locData) setLocationName(locData.name);
 
-      const now = new Date();
-      const todayDateOnly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-
-      const { data: reports } = await supabase
-        .from("patrols")
-        .select(
-          `
+      let query = supabase.from("patrols").select(
+        `
           id, 
           userId,
+          date,
           checkInTime, 
           status, 
           description,
           patrol_evidence(imageUrl)
         `,
-        )
-        .eq("patrolLocationId", id)
-        .eq("date", todayDateOnly)
-        .order("checkInTime", { ascending: false });
+      );
+
+      if (targetPatrolId) {
+        // Dibuka dari notifikasi temuan: langsung tarik laporan spesifik tanpa batas tanggal hari ini
+        query = query.eq("id", targetPatrolId);
+      } else {
+        // Dibuka dari menu patroli biasa: tampilkan riwayat pengecekan hari ini
+        const now = new Date();
+        const todayDateOnly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        query = query
+          .eq("patrolLocationId", id)
+          .eq("date", todayDateOnly)
+          .order("checkInTime", { ascending: false });
+      }
+
+      const { data: reports } = await query;
 
       if (reports) {
         const userIds = [
@@ -82,12 +94,21 @@ export default function PatrolDetailScreen() {
 
         const formatted = reports.map((r: any) => {
           const reporter = r.userId ? userMap.get(r.userId) : undefined;
+          const checkInDate = new Date(r.checkInTime);
+          const dateStr = checkInDate.toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          });
+          const timeStr = checkInDate.toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
           return {
             id: r.id,
-            time: new Date(r.checkInTime).toLocaleTimeString("id-ID", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            dateText: dateStr,
+            time: timeStr,
             reporterName: reporter?.name || "Petugas",
             reporterCode: reporter?.employeeCode || null,
             status: r.status,
@@ -103,7 +124,7 @@ export default function PatrolDetailScreen() {
     };
 
     fetchData();
-  }, [id]);
+  }, [id, targetPatrolId]);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -135,7 +156,9 @@ export default function PatrolDetailScreen() {
         </View>
 
         <Text className="text-slate-800 text-base font-bold mb-4 ml-1">
-          Riwayat Pengecekan Hari Ini ({reportHistory.length})
+          {targetPatrolId
+            ? "Detail Laporan Temuan"
+            : `Riwayat Pengecekan Hari Ini (${reportHistory.length})`}
         </Text>
 
         {loading ? (
@@ -145,8 +168,10 @@ export default function PatrolDetailScreen() {
             <View className="w-20 h-20 bg-slate-50 rounded-full items-center justify-center mb-4">
               <Ionicons name="folder-open-outline" size={40} color="#cbd5e1" />
             </View>
-            <Text className="text-slate-700 text-lg font-bold">
-              Belum Ada Laporan Hari Ini
+            <Text className="text-slate-700 text-lg font-bold text-center">
+              {targetPatrolId
+                ? "Laporan Temuan Tidak Ditemukan"
+                : "Belum Ada Laporan Hari Ini"}
             </Text>
           </View>
         ) : (
@@ -163,7 +188,9 @@ export default function PatrolDetailScreen() {
                     <View className="flex-row items-center">
                       <Ionicons name="time-outline" size={18} color="#64748b" />
                       <Text className="text-slate-600 font-semibold ml-2">
-                        {report.time} WIB
+                        {targetPatrolId
+                          ? `${report.dateText} • ${report.time} WIB`
+                          : `${report.time} WIB`}
                       </Text>
                     </View>
                     <View className="flex-row items-center mt-1.5">

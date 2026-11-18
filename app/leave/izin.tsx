@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { sendLeaveSubmissionNotificationsAsync } from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
 
 // Buat interface tipenya dulu biar aman di TypeScript
@@ -121,17 +122,35 @@ export default function PengajuanIzinScreen() {
         .getPublicUrl(storageData.path);
 
       // 2. Insert ke tabel leaves
-      const { error: insertError } = await supabase.from("leaves").insert({
-        userId: authData.user.id,
-        leaveType: "Izin",
-        startDate: formatForDB(startDate),
-        endDate: formatForDB(endDate),
-        reason: reason,
-        attachmentUrl: publicUrlData.publicUrl,
-        status: "Pending",
-      });
+      const startDateDB = formatForDB(startDate);
+      const endDateDB = formatForDB(endDate);
+
+      const { data: insertedLeave, error: insertError } = await supabase
+        .from("leaves")
+        .insert({
+          userId: authData.user.id,
+          leaveType: "Izin",
+          startDate: startDateDB,
+          endDate: endDateDB,
+          reason: reason,
+          attachmentUrl: publicUrlData.publicUrl,
+          status: "Pending",
+        })
+        .select("id")
+        .maybeSingle();
 
       if (insertError) throw insertError;
+
+      // 3. Kirim Notifikasi & Push ke Super Admin / HR
+      await sendLeaveSubmissionNotificationsAsync({
+        leaveId: insertedLeave?.id || null,
+        applicantId: authData.user.id,
+        leaveType: "Izin",
+        startDate: startDateDB,
+        endDate: endDateDB,
+        reason: reason,
+        attachmentUrl: publicUrlData.publicUrl,
+      });
 
       setIsLoading(false);
       

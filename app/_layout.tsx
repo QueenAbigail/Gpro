@@ -1,6 +1,6 @@
 import { Session } from "@supabase/supabase-js";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, View, useWindowDimensions } from "react-native";
 import NotificationPermissionModal from "../components/NotificationPermissionModal";
 import UpdateModal from "../components/UpdateModal";
@@ -16,6 +16,9 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const { width } = useWindowDimensions();
+  const lastHandledNotifIdRef = useRef<string | null>(null);
+  const pendingNotifResponseRef =
+    useRef<Notifications.NotificationResponse | null>(null);
 
   // Fungsi untuk cek session + device
   const checkAuthAndDevice = async (currentSession: Session | null) => {
@@ -76,51 +79,104 @@ export default function RootLayout() {
     }
   }, [session, isInitialized, segments, router]);
 
-  // 🔔 Deep Linking: Listener saat user klik banner Push Notification dari status bar HP
+  // 🔔 Deep Linking: Listener saat user klik banner Push Notification dari status bar HP (Warm & Cold Start)
   useEffect(() => {
     if (Platform.OS === "web") return;
 
-    const subscription =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        try {
-          const data = response?.notification?.request?.content?.data;
-          const notifType = String(data?.type || "").toLowerCase();
-
-          if (notifType === "sos") {
-            router.push({
-              pathname: "/profile/notifications",
-              params: { openSosLatest: "true" },
-            } as any);
-            return;
-          }
-
-          const targetRoute = data?.route;
-          if (targetRoute && typeof targetRoute === "string") {
-            if (targetRoute.startsWith("/(tabs)")) {
-              router.navigate(targetRoute as any);
-            } else {
-              router.push(targetRoute as any);
-            }
-          } else if (data?.type) {
-            if (notifType === "patrol") {
-              router.push("/(tabs)/patrol" as any);
-            } else if (notifType === "leave") {
-              router.push("/(tabs)/leave" as any);
-            } else if (notifType === "payroll") {
-              router.push("/(tabs)/profile" as any);
-            } else if (notifType === "system") {
-              router.navigate("/(tabs)" as any);
-            }
-          }
-        } catch (err) {
-          console.error("Error handling notification click:", err);
+    const handleNotificationResponse = (
+      response: Notifications.NotificationResponse | null,
+    ) => {
+      if (!response) return;
+      try {
+        // Jika app belum siap (Cold Start sebelum Stack ter-mount), tahan dulu responsnya
+        if (!isInitialized || !session) {
+          pendingNotifResponseRef.current = response;
+          return;
         }
-      });
+
+        const respId = response.notification.request.identifier;
+        if (lastHandledNotifIdRef.current === respId) return;
+        lastHandledNotifIdRef.current = respId;
+        pendingNotifResponseRef.current = null;
+
+        const data = response?.notification?.request?.content?.data;
+        const notifType = String(data?.type || "").toLowerCase();
+
+        if (notifType === "sos") {
+          router.push({
+            pathname: "/profile/notifications",
+            params: { openSosLatest: "true" },
+          } as any);
+          return;
+        }
+
+        if (
+          notifType === "leave" ||
+          notifType === "approval" ||
+          Boolean(data?.leaveId)
+        ) {
+          router.push({
+            pathname: "/profile/notifications",
+            params: {
+              openLeaveLatest: "true",
+              openLeaveId: data?.leaveId ? String(data.leaveId) : "",
+            },
+          } as any);
+          return;
+        }
+
+        const targetRoute = data?.route;
+        if (targetRoute && typeof targetRoute === "string") {
+          if (targetRoute.startsWith("/(tabs)")) {
+            router.navigate(targetRoute as any);
+          } else if (targetRoute.startsWith("/patrol/") && data?.patrolId) {
+            router.push({
+              pathname: targetRoute,
+              params: { patrolId: String(data.patrolId) },
+            } as any);
+          } else {
+            router.push(targetRoute as any);
+          }
+        } else if (data?.type) {
+          if (notifType === "patrol") {
+            router.push("/(tabs)/patrol" as any);
+          } else if (notifType === "payroll") {
+            router.push("/(tabs)/profile" as any);
+          }
+        }
+      } catch (err) {
+        console.error("Error handling notification click:", err);
+      }
+    };
+
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener(
+        handleNotificationResponse,
+      );
+
+    // Cold Start support: jalankan antrean notifikasi / getLastNotificationResponseAsync setelah Stack siap
+    let coldStartTimer: ReturnType<typeof setTimeout> | null = null;
+    if (isInitialized && session) {
+      coldStartTimer = setTimeout(() => {
+        if (pendingNotifResponseRef.current) {
+          handleNotificationResponse(pendingNotifResponseRef.current);
+          return;
+        }
+        Notifications.getLastNotificationResponseAsync()
+          .then((lastResp) => {
+            if (lastResp) {
+              handleNotificationResponse(lastResp);
+            }
+          })
+          .catch(() => {});
+      }, 150);
+    }
 
     return () => {
       subscription.remove();
+      if (coldStartTimer) clearTimeout(coldStartTimer);
     };
-  }, [router]);
+  }, [router, isInitialized, session]);
 
   // 🌟 LOADING SCREEN (Kunci biar nggak flash)
   if (!isInitialized) {

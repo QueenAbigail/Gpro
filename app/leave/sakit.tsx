@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { sendLeaveSubmissionNotificationsAsync } from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
 
 // 💡 IMPORT FUNGSI KOMPRESI DARI LIB LU
@@ -173,18 +174,36 @@ export default function PengajuanSakitScreen() {
         .getPublicUrl(storageData.path);
 
       // Masukin Semua Data ke Tabel 'leaves'
-      const { error: insertError } = await supabase.from("leaves").insert({
-        userId: userId,
-        leaveType: "Sakit",
-        startDate: formatForDB(startDate),
-        endDate: formatForDB(endDate),
-        reason: reason,
-        attachmentUrl: publicUrlData.publicUrl,
-        status: "Pending",
-        updatedAt: new Date().toISOString(), // Wajib ada
-      });
+      const startDateDB = formatForDB(startDate);
+      const endDateDB = formatForDB(endDate);
+
+      const { data: insertedLeave, error: insertError } = await supabase
+        .from("leaves")
+        .insert({
+          userId: userId,
+          leaveType: "Sakit",
+          startDate: startDateDB,
+          endDate: endDateDB,
+          reason: reason,
+          attachmentUrl: publicUrlData.publicUrl,
+          status: "Pending",
+          updatedAt: new Date().toISOString(), // Wajib ada
+        })
+        .select("id")
+        .maybeSingle();
 
       if (insertError) throw insertError;
+
+      // Kirim Notifikasi & Push ke Super Admin / HR
+      await sendLeaveSubmissionNotificationsAsync({
+        leaveId: insertedLeave?.id || null,
+        applicantId: userId,
+        leaveType: "Sakit",
+        startDate: startDateDB,
+        endDate: endDateDB,
+        reason: reason,
+        attachmentUrl: publicUrlData.publicUrl,
+      });
 
       setIsLoading(false);
 

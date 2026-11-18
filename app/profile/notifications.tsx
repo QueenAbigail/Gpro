@@ -16,7 +16,7 @@ import { supabase } from "@/lib/supabase";
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
 
-type NotificationType = "patrol" | "leave" | "payroll" | "system";
+type NotificationType = "patrol" | "leave" | "payroll" | "system" | "approval";
 
 interface Notification {
   id: string;
@@ -28,14 +28,55 @@ interface Notification {
   metadata?: Record<string, any> | null;
 }
 
+const isLeaveNotification = (item: Notification) => {
+  const t = String(item.type || "").toLowerCase();
+  const titleLower = String(item.title || "").toLowerCase();
+  return (
+    item.metadata?.type === "leave" ||
+    t === "leave" ||
+    t === "approval" ||
+    Boolean(item.metadata?.leaveId) ||
+    titleLower.includes("pengajuan") ||
+    titleLower.includes("tukar shift") ||
+    titleLower.includes("leave request")
+  );
+};
+
+// Format judul agar bersih & korporat untuk notifikasi perizinan (tetap pertahankan emoji SOS & Temuan Patroli)
+const formatDisplayTitle = (item: Notification) => {
+  const rawTitle = String(item.title || "");
+  if (!isLeaveNotification(item)) return rawTitle;
+
+  const lower = rawTitle.toLowerCase();
+  if (lower.includes("leave request approved")) {
+    return "Pengajuan Izin Disetujui";
+  }
+  if (lower.includes("leave request rejected")) {
+    return "Pengajuan Izin Ditolak";
+  }
+
+  return rawTitle
+    .replace(/^[\s✅❌📋🏥🔄✔️✖️☑️]+/u, "")
+    .replace(/!+$/, "")
+    .trim();
+};
+
 export default function NotificationsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [activeSosModal, setActiveSosModal] = useState<Notification | null>(null);
   const [sosSenderProfile, setSosSenderProfile] = useState<any>(null);
   const [isSenderLoading, setIsSenderLoading] = useState(false);
+
+  // State untuk Modal Detail Perizinan (Cuti / Izin / Sakit / Tukar Shift)
+  const [activeLeaveModal, setActiveLeaveModal] = useState<Notification | null>(null);
+  const [liveLeaveRecord, setLiveLeaveRecord] = useState<any>(null);
+  const [liveLeaveApplicant, setLiveLeaveApplicant] = useState<any>(null);
+  const [isLeaveLoading, setIsLeaveLoading] = useState(false);
+  const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
 
   // 1. Fetch data awal
   const fetchNotifications = useCallback(async () => {
@@ -43,6 +84,7 @@ export default function NotificationsScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
+      setCurrentUserId(user.id);
       const { data, error } = await supabase
         .from("notifications")
         .select("*")
@@ -75,10 +117,43 @@ export default function NotificationsScreen() {
             setActiveSosModal(sosItem);
           }
         }
+
+        // Jika dibuka dari push notif Perizinan (Cuti / Izin / Sakit / Tukar Shift), buka modal otomatis
+        if (params?.openLeaveLatest === "true" || params?.openLeaveId) {
+          const targetLeaveId = params?.openLeaveId ? String(params.openLeaveId) : "";
+          const leaveItem =
+            (targetLeaveId
+              ? formattedData.find(
+                  (n) =>
+                    n.metadata?.leaveId &&
+                    String(n.metadata.leaveId) === targetLeaveId,
+                )
+              : null) ||
+            formattedData.find((n) => isLeaveNotification(n));
+
+          if (leaveItem) {
+            setActiveLeaveModal(leaveItem);
+            if (!leaveItem.isRead) {
+              supabase
+                .from("notifications")
+                .update({ isRead: true, updatedAt: new Date().toISOString() })
+                .eq("id", leaveItem.id)
+                .then(({ error: readErr }) => {
+                  if (!readErr) {
+                    setNotifications((prev) =>
+                      prev.map((n) =>
+                        n.id === leaveItem.id ? { ...n, isRead: true } : n,
+                      ),
+                    );
+                  }
+                });
+            }
+          }
+        }
       }
     }
     setLoading(false);
-  }, [params?.openSosLatest]);
+  }, [params?.openSosLatest, params?.openLeaveLatest, params?.openLeaveId]);
 
   // 2. Setup Realtime dengan nama channel unik & Cleanup yang aman
   useEffect(() => {
@@ -217,6 +292,208 @@ export default function NotificationsScreen() {
     loadSenderDetails();
   }, [activeSosModal]);
 
+  // 4b. Otomatis tarik data LIVE tabel leaves (Status Pending/Approved/Rejected terkini) & profil pengaju
+  useEffect(() => {
+    if (!activeLeaveModal) {
+      setLiveLeaveRecord(null);
+      setLiveLeaveApplicant(null);
+      setIsLeaveLoading(false);
+      return;
+    }
+
+    const loadLiveLeaveDetails = async () => {
+      try {
+        setIsLeaveLoading(true);
+        const meta = activeLeaveModal.metadata || {};
+
+        if (meta.leaveId) {
+          const { data: leaveData } = await supabase
+            .from("leaves")
+            .select("*")
+            .eq("id", meta.leaveId)
+            .maybeSingle();
+
+          if (leaveData) {
+            setLiveLeaveRecord(leaveData);
+          }
+        }
+
+        const applicantId = meta.applicantId;
+        if (applicantId) {
+          const { data: uData } = await supabase
+            .from("users")
+            .select("id, name, avatar, position, role, siteId")
+            .eq("id", applicantId)
+            .maybeSingle();
+
+          if (uData) {
+            let siteName = meta.siteName || null;
+            if (uData.siteId) {
+              const { data: sData } = await supabase
+                .from("sites")
+                .select("name")
+                .eq("id", uData.siteId)
+                .maybeSingle();
+              if (sData?.name) siteName = sData.name;
+            }
+            setLiveLeaveApplicant({ ...uData, siteName });
+          }
+        }
+      } catch (err) {
+        console.error("Gagal load detail live perizinan:", err);
+      } finally {
+        setIsLeaveLoading(false);
+      }
+    };
+
+    loadLiveLeaveDetails();
+  }, [activeLeaveModal]);
+
+  const formatShortIndoDate = (dateStr?: string | null) => {
+    if (!dateStr) return "-";
+    const clean = String(dateStr).split("T")[0];
+    const parts = clean.split("-");
+    if (parts.length !== 3) return dateStr;
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "Mei",
+      "Jun",
+      "Jul",
+      "Agu",
+      "Sep",
+      "Okt",
+      "Nov",
+      "Des",
+    ];
+    const mIdx = parseInt(parts[1], 10) - 1;
+    return `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
+  };
+
+  const calculateLeaveDuration = (
+    startStr?: string | null,
+    endStr?: string | null,
+  ) => {
+    if (!startStr || !endStr) return "1 Hari";
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return "1 Hari";
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return `${diffDays} Hari`;
+  };
+
+  const getLeaveDetails = (notif: Notification | null) => {
+    const meta = notif?.metadata || {};
+    const leaveTypeRaw = String(
+      liveLeaveRecord?.leaveType || meta.leaveType || "Izin",
+    );
+    const isTukarShift =
+      leaveTypeRaw.toUpperCase() === "TUKAR_SHIFT" ||
+      leaveTypeRaw.toLowerCase().includes("tukar");
+    const isSakit = leaveTypeRaw.toLowerCase() === "sakit";
+
+    const applicantId = liveLeaveRecord?.userId || meta.applicantId || null;
+    const replacementUserId =
+      liveLeaveRecord?.replacementUserId || meta.replacementUserId || null;
+
+    const isSelfApplicant = Boolean(
+      currentUserId && applicantId && currentUserId === applicantId,
+    );
+    const isReplacementViewer =
+      meta.targetAudience === "replacement" ||
+      Boolean(
+        currentUserId &&
+          replacementUserId &&
+          currentUserId === replacementUserId,
+      );
+
+    const applicantName =
+      liveLeaveApplicant?.name || meta.applicantName || "Karyawan";
+    const applicantPosition =
+      liveLeaveApplicant?.position ||
+      meta.applicantPosition ||
+      liveLeaveApplicant?.role ||
+      "Karyawan";
+    const applicantAvatar =
+      liveLeaveApplicant?.avatar || meta.applicantAvatar || null;
+    const siteName =
+      liveLeaveApplicant?.siteName || meta.siteName || "Site Penempatan";
+
+    const startDate = liveLeaveRecord?.startDate || meta.startDate || null;
+    const endDate = liveLeaveRecord?.endDate || meta.endDate || startDate;
+    const reason =
+      liveLeaveRecord?.reason ||
+      meta.reason ||
+      notif?.message ||
+      "Tidak ada keterangan.";
+    const attachmentUrl =
+      liveLeaveRecord?.attachmentUrl || meta.attachmentUrl || null;
+
+    // Ekstrak nama file ringkas dari URL lampiran
+    let attachmentFileName = isSakit
+      ? "surat_dokter.jpg"
+      : "form_izin_ttd.jpg";
+    if (attachmentUrl && typeof attachmentUrl === "string") {
+      const lastSeg = attachmentUrl.split("/").pop()?.split("?")[0];
+      if (lastSeg) {
+        try {
+          attachmentFileName = decodeURIComponent(lastSeg);
+        } catch {
+          attachmentFileName = lastSeg;
+        }
+      }
+    }
+
+    const statusRaw = String(
+      liveLeaveRecord?.status || meta.newStatus || meta.status || "Pending",
+    ).toUpperCase();
+    let statusType: "Pending" | "Approved" | "Rejected" = "Pending";
+    if (statusRaw === "APPROVED" || statusRaw === "DISETUJUI") {
+      statusType = "Approved";
+    } else if (statusRaw === "REJECTED" || statusRaw === "DITOLAK") {
+      statusType = "Rejected";
+    }
+
+    const originalShiftType =
+      liveLeaveRecord?.originalShiftType ||
+      meta.originalShiftType ||
+      "Shift Asli";
+    const targetShiftType =
+      liveLeaveRecord?.targetShiftType ||
+      meta.targetShiftType ||
+      "Shift Pengganti";
+    const replacementUserName = meta.replacementUserName || "Rekan Pengganti";
+
+    return {
+      leaveType: leaveTypeRaw,
+      isTukarShift,
+      isSakit,
+      isSelfApplicant,
+      isReplacementViewer,
+      applicantName,
+      applicantPosition,
+      applicantAvatar,
+      siteName,
+      startDate,
+      endDate,
+      dateRangeText:
+        startDate && endDate && startDate !== endDate
+          ? `${formatShortIndoDate(startDate)} - ${formatShortIndoDate(endDate)}`
+          : formatShortIndoDate(startDate),
+      durationText: calculateLeaveDuration(startDate, endDate),
+      reason,
+      attachmentUrl,
+      attachmentFileName,
+      statusType,
+      originalShiftType,
+      targetShiftType,
+      replacementUserName,
+    };
+  };
+
   // 5. Helper data SOS & Quick Actions
   const getSosDetails = (notif: Notification | null) => {
     if (!notif) {
@@ -352,6 +629,12 @@ export default function NotificationsScreen() {
       return;
     }
 
+    // 2b. Cek apakah notifikasi Perizinan / Approval -> Munculkan Leave Modal Pop-up!
+    if (isLeaveNotification(item)) {
+      setActiveLeaveModal(item);
+      return;
+    }
+
     // 3. Deep Linking / Target Spesifik dari metadata
     const targetRoute = item.metadata?.route;
     if (
@@ -361,6 +644,14 @@ export default function NotificationsScreen() {
     ) {
       if (targetRoute.startsWith("/(tabs)")) {
         router.navigate(targetRoute as any);
+      } else if (
+        targetRoute.startsWith("/patrol/") &&
+        item.metadata?.patrolId
+      ) {
+        router.push({
+          pathname: targetRoute,
+          params: { patrolId: String(item.metadata.patrolId) },
+        } as any);
       } else {
         router.push(targetRoute as any);
       }
@@ -370,12 +661,8 @@ export default function NotificationsScreen() {
     // 4. Fallback cerdas berdasarkan type jika metadata kosong
     if (notifType === "patrol") {
       router.push("/(tabs)/patrol" as any);
-    } else if (notifType === "leave") {
-      router.push("/(tabs)/leave" as any);
     } else if (notifType === "payroll") {
       router.push("/(tabs)/profile" as any);
-    } else if (notifType === "system") {
-      router.navigate("/(tabs)" as any);
     }
   };
 
@@ -390,6 +677,7 @@ export default function NotificationsScreen() {
   };
 
   const sosData = getSosDetails(activeSosModal);
+  const leaveData = getLeaveDetails(activeLeaveModal);
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -427,6 +715,78 @@ export default function NotificationsScreen() {
             const isItemTemuan =
               item.metadata?.status === "INCIDENT" ||
               item.title?.includes("Temuan");
+            const isItemLeave = isLeaveNotification(item);
+            const itemLeaveType = String(item.metadata?.leaveType || "");
+            const itemStatusUpper = String(
+              item.metadata?.newStatus || item.metadata?.status || "",
+            ).toUpperCase();
+            const titleLower = String(item.title || "").toLowerCase();
+            const isItemLeaveApproved =
+              isItemLeave &&
+              (itemStatusUpper === "APPROVED" ||
+                itemStatusUpper === "DISETUJUI" ||
+                titleLower.includes("disetujui") ||
+                titleLower.includes("approved"));
+            const isItemLeaveRejected =
+              isItemLeave &&
+              (itemStatusUpper === "REJECTED" ||
+                itemStatusUpper === "DITOLAK" ||
+                titleLower.includes("ditolak") ||
+                titleLower.includes("rejected"));
+            const isItemSakit =
+              itemLeaveType.toLowerCase() === "sakit" ||
+              titleLower.includes("sakit");
+            const isItemTukar =
+              itemLeaveType.toUpperCase() === "TUKAR_SHIFT" ||
+              titleLower.includes("tukar shift");
+
+            const itemIconBg = isItemSos
+              ? "bg-red-100"
+              : isItemTemuan
+                ? "bg-amber-100"
+                : isItemLeaveApproved
+                  ? "bg-emerald-50"
+                  : isItemLeaveRejected
+                    ? "bg-red-50"
+                    : isItemLeave
+                      ? isItemSakit
+                        ? "bg-red-50"
+                        : isItemTukar
+                          ? "bg-emerald-50"
+                          : "bg-blue-50"
+                      : iconConfig.bg;
+
+            const itemIconName = isItemSos
+              ? "warning"
+              : isItemTemuan
+                ? "alert-circle"
+                : isItemLeaveApproved
+                  ? "checkmark-circle"
+                  : isItemLeaveRejected
+                    ? "close-circle"
+                    : isItemLeave
+                      ? isItemSakit
+                        ? "medkit"
+                        : isItemTukar
+                          ? "swap-horizontal"
+                          : "document-text"
+                      : iconConfig.name;
+
+            const itemIconColor = isItemSos
+              ? "#dc2626"
+              : isItemTemuan
+                ? "#d97706"
+                : isItemLeaveApproved
+                  ? "#059669"
+                  : isItemLeaveRejected
+                    ? "#dc2626"
+                    : isItemLeave
+                      ? isItemSakit
+                        ? "#ef4444"
+                        : isItemTukar
+                          ? "#10b981"
+                          : "#2563eb"
+                      : iconConfig.color;
 
             return (
               <TouchableOpacity
@@ -444,30 +804,12 @@ export default function NotificationsScreen() {
                 onPress={() => handleItemPress(item)}
               >
                 <View
-                  className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
-                    isItemSos
-                      ? "bg-red-100"
-                      : isItemTemuan
-                        ? "bg-amber-100"
-                        : iconConfig.bg
-                  }`}
+                  className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${itemIconBg}`}
                 >
                   <Ionicons
-                    name={
-                      isItemSos
-                        ? "warning"
-                        : isItemTemuan
-                          ? "alert-circle"
-                          : (iconConfig.name as any)
-                    }
+                    name={itemIconName as any}
                     size={24}
-                    color={
-                      isItemSos
-                        ? "#dc2626"
-                        : isItemTemuan
-                          ? "#d97706"
-                          : iconConfig.color
-                    }
+                    color={itemIconColor}
                   />
                 </View>
                 <View className="flex-1">
@@ -483,7 +825,7 @@ export default function NotificationsScreen() {
                               : "font-bold text-slate-900"
                       }`}
                     >
-                      {item.title}
+                      {formatDisplayTitle(item)}
                     </Text>
                     {!item.isRead && (
                       <View
@@ -630,6 +972,417 @@ export default function NotificationsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* 📋 LEAVE / SAKIT / TUKAR SHIFT DETAIL MODAL (POP-UP MELAYANG) */}
+      <Modal
+        visible={!!activeLeaveModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setActiveLeaveModal(null)}
+      >
+        <View className="flex-1 bg-black/70 justify-center items-center px-5">
+          <View className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-slate-100 max-h-[86%]">
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ alignItems: "center" }}
+            >
+              {/* Semantic Header Icon Bubble */}
+              {(() => {
+                let bubbleClass = "bg-blue-100 border-blue-200";
+                let iconName: any = "document-text";
+                let iconColor = "#2563eb";
+                let modalTitle = "PENGAJUAN IZIN";
+                let modalSubtitle =
+                  "Permohonan izin / cuti dengan lampiran dokumen form";
+
+                if (leaveData.isTukarShift) {
+                  bubbleClass = "bg-emerald-100 border-emerald-200";
+                  iconName = "swap-horizontal";
+                  iconColor = "#059669";
+                  modalTitle = leaveData.isReplacementViewer
+                    ? "AJAKAN TUKAR SHIFT"
+                    : "PENGAJUAN TUKAR SHIFT";
+                  modalSubtitle = leaveData.isReplacementViewer
+                    ? `${leaveData.applicantName} mengajak Anda bertukar jadwal dinas`
+                    : "Permohonan barter jadwal dinas antar karyawan";
+                } else if (leaveData.isSelfApplicant) {
+                  if (leaveData.statusType === "Approved") {
+                    bubbleClass = "bg-emerald-100 border-emerald-200";
+                    iconName = "checkmark-circle";
+                    iconColor = "#059669";
+                    modalTitle = leaveData.isSakit
+                      ? "PENGAJUAN SAKIT DISETUJUI"
+                      : "PENGAJUAN IZIN DISETUJUI";
+                    modalSubtitle = "Status permohonan kamu telah diperbarui";
+                  } else if (leaveData.statusType === "Rejected") {
+                    bubbleClass = "bg-red-100 border-red-200";
+                    iconName = "close-circle";
+                    iconColor = "#dc2626";
+                    modalTitle = leaveData.isSakit
+                      ? "PENGAJUAN SAKIT DITOLAK"
+                      : "PENGAJUAN IZIN DITOLAK";
+                    modalSubtitle = "Status permohonan kamu telah diperbarui";
+                  } else {
+                    bubbleClass = "bg-amber-100 border-amber-200";
+                    iconName = "time";
+                    iconColor = "#d97706";
+                    modalTitle = leaveData.isSakit
+                      ? "PENGAJUAN SAKIT"
+                      : "PENGAJUAN IZIN";
+                    modalSubtitle = "Permohonan sedang menunggu persetujuan";
+                  }
+                } else if (leaveData.isSakit) {
+                  bubbleClass = "bg-red-100 border-red-200";
+                  iconName = "medkit";
+                  iconColor = "#dc2626";
+                  modalTitle = "PENGAJUAN SAKIT";
+                  modalSubtitle =
+                    "Izin sakit dengan lampiran surat keterangan dokter";
+                }
+
+                return (
+                  <>
+                    <View
+                      className={`w-14 h-14 rounded-full border items-center justify-center mb-3 ${bubbleClass}`}
+                    >
+                      <Ionicons name={iconName} size={28} color={iconColor} />
+                    </View>
+                    <Text className="text-lg font-extrabold text-slate-950 tracking-tight text-center mb-1">
+                      {modalTitle}
+                    </Text>
+                    <Text className="text-xs text-slate-500 text-center mb-4">
+                      {modalSubtitle}
+                    </Text>
+                  </>
+                );
+              })()}
+
+              {/* Applicant Profile Card (Disembunyikan jika pemohon melihat pengajuan miliknya sendiri) */}
+              {(!leaveData.isSelfApplicant || leaveData.isTukarShift) && (
+                <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-3">
+                  <View className="flex-row items-center">
+                    <View
+                      className={`w-11 h-11 rounded-full overflow-hidden items-center justify-center mr-3 border border-slate-200 ${
+                        leaveData.isTukarShift || leaveData.isSakit
+                          ? "bg-emerald-600"
+                          : "bg-blue-600"
+                      }`}
+                    >
+                      {isLeaveLoading ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : leaveData.applicantAvatar ? (
+                        <Image
+                          source={{ uri: leaveData.applicantAvatar }}
+                          className="w-full h-full"
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Text className="text-white font-extrabold text-sm">
+                          {getInitials(leaveData.applicantName)}
+                        </Text>
+                      )}
+                    </View>
+                    <View className="flex-1 min-w-0">
+                      <View className="flex-row items-center justify-between">
+                        <Text
+                          className="text-sm font-bold text-slate-900 flex-1 mr-2"
+                          numberOfLines={1}
+                        >
+                          {leaveData.applicantName}
+                        </Text>
+                        <View className="bg-blue-100 px-2 py-0.5 rounded-full">
+                          <Text className="text-[10px] text-blue-700 font-semibold">
+                            {leaveData.applicantPosition}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text
+                        className="text-xs text-slate-600 font-medium mt-0.5"
+                        numberOfLines={1}
+                      >
+                        {leaveData.siteName}
+                      </Text>
+                      <Text className="text-[11px] text-slate-400 font-medium mt-0.5">
+                        {activeLeaveModal?.time || "Baru saja"}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Detail Content Box */}
+              {leaveData.isTukarShift ? (
+                <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-4">
+                  {/* Shift Comparison (2 Kolom) */}
+                  <View className="flex-row mb-3">
+                    <View className="flex-1 bg-white p-2.5 rounded-xl border border-slate-200 items-center mr-2">
+                      <Text
+                        className="text-[10px] text-slate-400 font-bold uppercase mb-0.5 text-center"
+                        numberOfLines={1}
+                      >
+                        {leaveData.isReplacementViewer
+                          ? `Shift ${leaveData.applicantName}`
+                          : `Pengaju (${leaveData.applicantName})`}
+                      </Text>
+                      <Text
+                        className="text-xs font-extrabold text-slate-900 text-center"
+                        numberOfLines={1}
+                      >
+                        {leaveData.originalShiftType}
+                      </Text>
+                      <Text className="text-[10px] text-blue-600 font-semibold mt-0.5">
+                        {formatShortIndoDate(leaveData.startDate)}
+                      </Text>
+                    </View>
+
+                    <View className="flex-1 bg-blue-50/70 p-2.5 rounded-xl border border-blue-200 items-center">
+                      <Text
+                        className="text-[10px] text-blue-600 font-bold uppercase mb-0.5 text-center"
+                        numberOfLines={1}
+                      >
+                        {leaveData.isReplacementViewer
+                          ? "Shift Kamu"
+                          : `Pengganti (${leaveData.replacementUserName})`}
+                      </Text>
+                      <Text
+                        className="text-xs font-extrabold text-blue-900 text-center"
+                        numberOfLines={1}
+                      >
+                        {leaveData.targetShiftType}
+                      </Text>
+                      <Text className="text-[10px] text-blue-700 font-semibold mt-0.5">
+                        {formatShortIndoDate(leaveData.endDate)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Alasan Tukar */}
+                  <View>
+                    <Text className="text-xs text-slate-500 font-medium mb-1">
+                      Alasan Tukar
+                    </Text>
+                    <View className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <Text className="text-xs text-slate-700 font-semibold leading-relaxed">
+                        {leaveData.reason}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <View className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 mb-3">
+                    {/* Periode & Durasi */}
+                    <View className="flex-row items-start justify-between border-b border-slate-200 pb-2.5 mb-2.5">
+                      <Text className="text-xs text-slate-500 font-medium">
+                        {leaveData.isSakit ? "Periode Sakit" : "Periode Izin"}
+                      </Text>
+                      <View className="items-end flex-1 ml-2">
+                        <Text className="text-xs font-bold text-slate-900 text-right">
+                          {leaveData.dateRangeText}
+                        </Text>
+                        <View
+                          className={`px-2 py-0.5 rounded mt-1 ${
+                            leaveData.isSakit ? "bg-red-50" : "bg-blue-50"
+                          }`}
+                        >
+                          <Text
+                            className={`text-[10px] font-semibold ${
+                              leaveData.isSakit
+                                ? "text-red-600"
+                                : "text-blue-600"
+                            }`}
+                          >
+                            Durasi: {leaveData.durationText}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Alasan / Keluhan */}
+                    <View className={leaveData.attachmentUrl ? "mb-2.5" : ""}>
+                      <Text className="text-xs text-slate-500 font-medium mb-1">
+                        {leaveData.isSakit
+                          ? "Diagnosa / Keluhan"
+                          : "Alasan Pengajuan"}
+                      </Text>
+                      <View className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <Text className="text-xs text-slate-700 font-semibold leading-relaxed">
+                          {leaveData.reason}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Lampiran Dokumen / Surat Dokter (Tampil untuk Izin/Cuti & Sakit) */}
+                    {leaveData.attachmentUrl && (
+                      <View>
+                        <Text className="text-xs text-slate-500 font-medium mb-1">
+                          {leaveData.isSakit
+                            ? "Lampiran Surat Dokter"
+                            : "Lampiran Form Izin"}
+                        </Text>
+                        <View className="bg-white p-2 rounded-xl border border-slate-200 flex-row items-center justify-between">
+                          <View className="flex-row items-center flex-1 mr-2 min-w-0">
+                            <View
+                              className={`w-9 h-9 rounded-lg border items-center justify-center mr-2.5 ${
+                                leaveData.isSakit
+                                  ? "bg-red-50 border-red-100"
+                                  : "bg-blue-50 border-blue-100"
+                              }`}
+                            >
+                              <Ionicons
+                                name="image-outline"
+                                size={18}
+                                color={
+                                  leaveData.isSakit ? "#ef4444" : "#2563eb"
+                                }
+                              />
+                            </View>
+                            <View className="flex-1 min-w-0">
+                              <Text
+                                className="text-xs font-bold text-slate-800"
+                                numberOfLines={1}
+                              >
+                                {leaveData.attachmentFileName}
+                              </Text>
+                              <Text className="text-[10px] text-slate-400">
+                                {leaveData.isSakit
+                                  ? "Bukti resmi terlampir"
+                                  : "Dokumen bertanda tangan"}
+                              </Text>
+                            </View>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() =>
+                              setPreviewAttachmentUri(leaveData.attachmentUrl)
+                            }
+                            activeOpacity={0.7}
+                            className="px-3 py-2 bg-blue-50 active:bg-blue-100 rounded-lg"
+                          >
+                            <Text className="text-[11px] font-bold text-blue-600">
+                              Lihat Foto
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Status Card Ringkas (Live dari tabel leaves: Pending / Approved / Rejected) */}
+                  {(() => {
+                    const isApproved = leaveData.statusType === "Approved";
+                    const isRejected = leaveData.statusType === "Rejected";
+                    const cardStyle = isApproved
+                      ? "bg-emerald-50 border-emerald-200"
+                      : isRejected
+                        ? "bg-red-50 border-red-200"
+                        : "bg-amber-50 border-amber-200";
+                    const titleStyle = isApproved
+                      ? "text-emerald-800"
+                      : isRejected
+                        ? "text-red-800"
+                        : "text-amber-800";
+                    const subStyle = isApproved
+                      ? "text-emerald-700"
+                      : isRejected
+                        ? "text-red-700"
+                        : "text-amber-700";
+                    const iconWrapStyle = isApproved
+                      ? "bg-emerald-100"
+                      : isRejected
+                        ? "bg-red-100"
+                        : "bg-amber-100";
+                    const statusIconName = isApproved
+                      ? "checkmark"
+                      : isRejected
+                        ? "close"
+                        : "time-outline";
+                    const statusIconColor = isApproved
+                      ? "#059669"
+                      : isRejected
+                        ? "#dc2626"
+                        : "#d97706";
+                    const statusTitleText = `Status : ${leaveData.statusType}`;
+                    const statusSubText = isApproved
+                      ? "Telah Disetujui"
+                      : isRejected
+                        ? "Pengajuan Ditolak"
+                        : "Menunggu Persetujuan";
+
+                    return (
+                      <View
+                        className={`w-full border rounded-2xl p-3 mb-4 flex-row items-center justify-between ${cardStyle}`}
+                      >
+                        <View className="flex-1 mr-2">
+                          <Text
+                            className={`text-xs font-extrabold ${titleStyle}`}
+                          >
+                            {statusTitleText}
+                          </Text>
+                          <Text className={`text-[11px] font-medium ${subStyle}`}>
+                            {statusSubText}
+                          </Text>
+                        </View>
+                        <View
+                          className={`w-8 h-8 rounded-full items-center justify-center ${iconWrapStyle}`}
+                        >
+                          {isLeaveLoading ? (
+                            <ActivityIndicator
+                              size="small"
+                              color={statusIconColor}
+                            />
+                          ) : (
+                            <Ionicons
+                              name={statusIconName as any}
+                              size={16}
+                              color={statusIconColor}
+                            />
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })()}
+                </>
+              )}
+
+              {/* Tombol Tutup (Target sentuh lega 48px + hitSlop) */}
+              <TouchableOpacity
+                onPress={() => setActiveLeaveModal(null)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 16, left: 20, right: 20 }}
+                className="w-full h-12 bg-slate-100 active:bg-slate-200 rounded-2xl items-center justify-center border border-slate-200"
+              >
+                <Text className="text-xs font-bold text-slate-700">Tutup</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🖼️ FULLSCREEN ATTACHMENT PREVIEW LIGHTBOX */}
+      <Modal
+        visible={!!previewAttachmentUri}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setPreviewAttachmentUri(null)}
+      >
+        <View className="flex-1 bg-black/90 justify-center items-center px-4">
+          <TouchableOpacity
+            onPress={() => setPreviewAttachmentUri(null)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            className="absolute top-14 right-6 w-11 h-11 bg-white/20 rounded-full items-center justify-center z-20"
+          >
+            <Ionicons name="close" size={24} color="#ffffff" />
+          </TouchableOpacity>
+          {previewAttachmentUri && (
+            <Image
+              source={{ uri: previewAttachmentUri }}
+              className="w-full h-[72%] rounded-2xl"
+              resizeMode="contain"
+            />
+          )}
         </View>
       </Modal>
     </View>
