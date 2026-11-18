@@ -16,7 +16,13 @@ import { supabase } from "@/lib/supabase";
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
 
-type NotificationType = "patrol" | "leave" | "payroll" | "system" | "approval";
+type NotificationType =
+  | "patrol"
+  | "leave"
+  | "payroll"
+  | "system"
+  | "approval"
+  | "announcement";
 
 interface Notification {
   id: string;
@@ -39,8 +45,41 @@ const isBkoNotification = (item: Notification) => {
   );
 };
 
+const isPayrollNotification = (item: Notification) => {
+  const metaType = String(item.metadata?.type || "").toLowerCase();
+  const t = String(item.type || "").toLowerCase();
+  const titleLower = String(item.title || "").toLowerCase();
+  return (
+    metaType === "payroll" ||
+    t === "payroll" ||
+    Boolean(item.metadata?.payrollId) ||
+    titleLower.includes("slip gaji") ||
+    titleLower.includes("payroll")
+  );
+};
+
+const isAnnouncementNotification = (item: Notification) => {
+  const metaType = String(item.metadata?.type || "").toLowerCase();
+  const t = String(item.type || "").toLowerCase();
+  const route = String(item.metadata?.route || "");
+  const titleLower = String(item.title || "").toLowerCase();
+  return (
+    metaType === "announcement" ||
+    t === "announcement" ||
+    Boolean(item.metadata?.announcementId) ||
+    route.startsWith("/beranda/announcement") ||
+    titleLower.includes("pengumuman")
+  );
+};
+
 const isLeaveNotification = (item: Notification) => {
-  if (isBkoNotification(item)) return false;
+  if (
+    isBkoNotification(item) ||
+    isPayrollNotification(item) ||
+    isAnnouncementNotification(item)
+  ) {
+    return false;
+  }
   const t = String(item.type || "").toLowerCase();
   const titleLower = String(item.title || "").toLowerCase();
   return (
@@ -54,10 +93,17 @@ const isLeaveNotification = (item: Notification) => {
   );
 };
 
-// Format judul agar bersih & korporat untuk notifikasi perizinan & BKO (tetap pertahankan emoji SOS & Temuan Patroli)
+// Format judul agar bersih & korporat untuk notifikasi perizinan, BKO, Payroll, & Pengumuman (tetap pertahankan emoji SOS & Temuan Patroli)
 const formatDisplayTitle = (item: Notification) => {
   const rawTitle = String(item.title || "");
-  if (!isLeaveNotification(item) && !isBkoNotification(item)) return rawTitle;
+  if (
+    !isLeaveNotification(item) &&
+    !isBkoNotification(item) &&
+    !isPayrollNotification(item) &&
+    !isAnnouncementNotification(item)
+  ) {
+    return rawTitle;
+  }
 
   const lower = rawTitle.toLowerCase();
   if (lower.includes("leave request approved")) {
@@ -68,7 +114,7 @@ const formatDisplayTitle = (item: Notification) => {
   }
 
   return rawTitle
-    .replace(/^[\s✅❌📋🏥🔄🛡️✔️✖️☑️]+/u, "")
+    .replace(/^[\s✅❌📋🏥🔄🛡️💰💵📄📢📣✔️✖️☑️]+/u, "")
     .replace(/!+$/, "")
     .trim();
 };
@@ -787,6 +833,30 @@ export default function NotificationsScreen() {
       return;
     }
 
+    // 2c. Cek apakah notifikasi Slip Gaji (Payroll) -> Langsung Deep Link ke Halaman Slip Gaji!
+    if (isPayrollNotification(item)) {
+      router.push("/beranda/payroll/payroll-page" as any);
+      return;
+    }
+
+    // 2d. Cek apakah notifikasi Broadcast Pengumuman -> Langsung Deep Link ke Halaman Detail Pengumuman!
+    if (isAnnouncementNotification(item)) {
+      if (item.metadata?.announcementId) {
+        router.push(
+          `/beranda/announcement/${String(item.metadata.announcementId)}` as any,
+        );
+      } else if (
+        item.metadata?.route &&
+        typeof item.metadata.route === "string" &&
+        item.metadata.route !== "/profile/notifications"
+      ) {
+        router.push(item.metadata.route as any);
+      } else {
+        router.push("/beranda/announcement" as any);
+      }
+      return;
+    }
+
     // 3. Deep Linking / Target Spesifik dari metadata
     const targetRoute = item.metadata?.route;
     if (
@@ -814,7 +884,7 @@ export default function NotificationsScreen() {
     if (notifType === "patrol") {
       router.push("/(tabs)/patrol" as any);
     } else if (notifType === "payroll") {
-      router.push("/(tabs)/profile" as any);
+      router.push("/beranda/payroll/payroll-page" as any);
     }
   };
 
@@ -869,6 +939,8 @@ export default function NotificationsScreen() {
               item.metadata?.status === "INCIDENT" ||
               item.title?.includes("Temuan");
             const isItemBko = isBkoNotification(item);
+            const isItemPayroll = isPayrollNotification(item);
+            const isItemAnnouncement = isAnnouncementNotification(item);
             const isItemLeave = isLeaveNotification(item);
             const itemLeaveType = String(item.metadata?.leaveType || "");
             const itemStatusUpper = String(
@@ -900,17 +972,21 @@ export default function NotificationsScreen() {
                 ? "bg-amber-100"
                 : isItemBko
                   ? "bg-indigo-50"
-                  : isItemLeaveApproved
+                  : isItemPayroll
                     ? "bg-emerald-50"
-                    : isItemLeaveRejected
-                      ? "bg-red-50"
-                      : isItemLeave
-                        ? isItemSakit
+                    : isItemAnnouncement
+                      ? "bg-sky-50"
+                      : isItemLeaveApproved
+                        ? "bg-emerald-50"
+                        : isItemLeaveRejected
                           ? "bg-red-50"
-                          : isItemTukar
-                            ? "bg-emerald-50"
-                            : "bg-blue-50"
-                        : iconConfig.bg;
+                          : isItemLeave
+                            ? isItemSakit
+                              ? "bg-red-50"
+                              : isItemTukar
+                                ? "bg-emerald-50"
+                                : "bg-blue-50"
+                            : iconConfig.bg;
 
             const itemIconName = isItemSos
               ? "warning"
@@ -918,17 +994,21 @@ export default function NotificationsScreen() {
                 ? "alert-circle"
                 : isItemBko
                   ? "shield-checkmark"
-                  : isItemLeaveApproved
-                    ? "checkmark-circle"
-                    : isItemLeaveRejected
-                      ? "close-circle"
-                      : isItemLeave
-                        ? isItemSakit
-                          ? "medkit"
-                          : isItemTukar
-                            ? "swap-horizontal"
-                            : "document-text"
-                        : iconConfig.name;
+                  : isItemPayroll
+                    ? "wallet"
+                    : isItemAnnouncement
+                      ? "megaphone"
+                      : isItemLeaveApproved
+                        ? "checkmark-circle"
+                        : isItemLeaveRejected
+                          ? "close-circle"
+                          : isItemLeave
+                            ? isItemSakit
+                              ? "medkit"
+                              : isItemTukar
+                                ? "swap-horizontal"
+                                : "document-text"
+                            : iconConfig.name;
 
             const itemIconColor = isItemSos
               ? "#dc2626"
@@ -936,17 +1016,21 @@ export default function NotificationsScreen() {
                 ? "#d97706"
                 : isItemBko
                   ? "#4f46e5"
-                  : isItemLeaveApproved
+                  : isItemPayroll
                     ? "#059669"
-                    : isItemLeaveRejected
-                      ? "#dc2626"
-                      : isItemLeave
-                        ? isItemSakit
-                          ? "#ef4444"
-                          : isItemTukar
-                            ? "#10b981"
-                            : "#2563eb"
-                        : iconConfig.color;
+                    : isItemAnnouncement
+                      ? "#0284c7"
+                      : isItemLeaveApproved
+                        ? "#059669"
+                        : isItemLeaveRejected
+                          ? "#dc2626"
+                          : isItemLeave
+                            ? isItemSakit
+                              ? "#ef4444"
+                              : isItemTukar
+                                ? "#10b981"
+                                : "#2563eb"
+                            : iconConfig.color;
 
             return (
               <TouchableOpacity

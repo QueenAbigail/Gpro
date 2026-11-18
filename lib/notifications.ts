@@ -621,3 +621,185 @@ export async function sendBkoTakenNotificationsAsync(
     return { success: false, error: err };
   }
 }
+
+// ============================================================================
+// ⏰ PENGINGAT ABSEN MASUK OTOMATIS (LOCAL SCHEDULED NOTIFICATION — H-5 MENIT)
+// ============================================================================
+
+const ATTENDANCE_REMINDER_TYPE = "attendance_reminder";
+const REMINDER_LEAD_MINUTES = 5;
+
+const formatDateYYYYMMDD = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+export async function clearAttendanceRemindersAsync() {
+  if (Platform.OS === "web") return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const reminderIds = scheduled
+      .filter((n) => n.content?.data?.type === ATTENDANCE_REMINDER_TYPE)
+      .map((n) => n.identifier);
+
+    await Promise.all(
+      reminderIds.map((id) =>
+        Notifications.cancelScheduledNotificationAsync(id),
+      ),
+    );
+  } catch (err) {
+    console.error("Gagal membersihkan jadwal pengingat absensi:", err);
+  }
+}
+
+export async function cancelTodayAttendanceReminderAsync(dateStr?: string) {
+  if (Platform.OS === "web") return;
+  try {
+    const targetDate = dateStr || formatDateYYYYMMDD(new Date());
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const matchingIds = scheduled
+      .filter(
+        (n) =>
+          n.content?.data?.type === ATTENDANCE_REMINDER_TYPE &&
+          n.content?.data?.date === targetDate,
+      )
+      .map((n) => n.identifier);
+
+    await Promise.all(
+      matchingIds.map((id) =>
+        Notifications.cancelScheduledNotificationAsync(id),
+      ),
+    );
+  } catch (err) {
+    console.error("Gagal membatalkan pengingat absensi hari ini:", err);
+  }
+}
+
+export async function syncAttendanceRemindersAsync(userId: string) {
+  if (!userId || Platform.OS === "web") return { scheduledCount: 0 };
+
+  try {
+    // Pastikan izin notifikasi sudah diberikan
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") {
+      return { scheduledCount: 0 };
+    }
+
+    // Bersihkan jadwal pengingat absen lama agar selalu fresh & bebas duplikat
+    await clearAttendanceRemindersAsync();
+
+    const now = new Date();
+    const todayStr = formatDateYYYYMMDD(now);
+    const endWindow = new Date(now);
+    endWindow.setDate(endWindow.getDate() + 6); // 7 hari ke depan (inklusif hari ini)
+    const endWindowStr = formatDateYYYYMMDD(endWindow);
+
+    // Ambil jadwal murni dari timesheet (attendances) + daftar cuti/sakit Approved
+    const [schedulesRes, leavesRes] = await Promise.all([
+      supabase
+        .from("attendances")
+        .select("id, date, scheduledStart, actualCheckIn")
+        .eq("userId", userId)
+        .gte("date", todayStr)
+        .lte("date", endWindowStr)
+        .not("scheduledStart", "is", null)
+        .order("date", { ascending: true }),
+      supabase
+        .from("leaves")
+        .select("startDate, endDate, leaveType, status")
+        .eq("userId", userId)
+        .in("status", ["Approved", "Disetujui"])
+        .in("leaveType", ["Izin", "Cuti", "Sakit"])
+        .gte("endDate", todayStr),
+    ]);
+
+    if (schedulesRes.error) {
+      console.error("Gagal membaca timesheet untuk pengingat absensi:", schedulesRes.error);
+      return { scheduledCount: 0 };
+    }
+
+    const schedules = schedulesRes.data || [];
+    // Silent skip jika site/karyawan belum punya jadwal timesheet
+    if (schedules.length === 0) {
+      return { scheduledCount: 0 };
+    }
+
+    const approvedLeaves = (leavesRes.data || []).map((l: any) => ({
+      start: String(l.startDate || "").split("T")[0],
+      end: String(l.endDate || l.startDate || "").split("T")[0],
+    }));
+
+    let scheduledCount = 0;
+
+    for (const row of schedules) {
+      // Skip jika sudah absen masuk atau scheduledStart kosong
+      if (row.actualCheckIn || !row.scheduledStart || !row.date) continue;
+
+      const rowDate = String(row.date).split("T")[0];
+
+      // Skip jika tanggal tersebut karyawan sedang izin/cuti/sakit yang sudah Approved
+      const isOnApprovedLeave = approvedLeaves.some(
+        (lv) => lv.start && lv.end && rowDate >= lv.start && rowDate <= lv.end,
+      );
+      if (isOnApprovedLeave) continue;
+
+      // Parse YYYY-MM-DD dan HH:mm
+      const dateParts = rowDate.split("-").map(Number);
+      const timeParts = String(row.scheduledStart).split(":").map(Number);
+      if (dateParts.length !== 3 || timeParts.length < 2) continue;
+
+      const [year, month, day] = dateParts;
+      const [hour, minute] = timeParts;
+      if (
+        isNaN(year) ||
+        isNaN(month) ||
+        isNaN(day) ||
+        isNaN(hour) ||
+        isNaN(minute)
+      ) {
+        continue;
+      }
+
+      const shiftStart = new Date(year, month - 1, day, hour, minute, 0, 0);
+      const triggerDate = new Date(
+        shiftStart.getTime() - REMINDER_LEAD_MINUTES * 60 * 1000,
+      );
+
+      // Hanya jadwalkan jika waktu pengingat masih di masa depan (minimal +10 detik dari sekarang)
+      if (triggerDate.getTime() <= Date.now() + 10_000) {
+        continue;
+      }
+
+      const formattedTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Pengingat Absen Masuk",
+          body: `Jadwal shift Anda dimulai pukul ${formattedTime} WIB. Jangan lupa lakukan absensi masuk.`,
+          sound: "default",
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+          data: {
+            type: ATTENDANCE_REMINDER_TYPE,
+            route: "/beranda/absen/masuk",
+            date: rowDate,
+            scheduledStart: formattedTime,
+          },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate,
+          channelId: "default",
+        },
+      });
+
+      scheduledCount += 1;
+    }
+
+    return { scheduledCount };
+  } catch (err) {
+    console.error("Gagal sinkronisasi pengingat absensi:", err);
+    return { scheduledCount: 0, error: err };
+  }
+}

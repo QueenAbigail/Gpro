@@ -18,6 +18,7 @@ import { captureRef } from "react-native-view-shot";
 import { formatDateIndo } from "../../../lib/dateUtils";
 import { compressToWebP } from "../../../lib/imageUtils";
 import { getDistance } from "../../../lib/locationUtils";
+import { cancelTodayAttendanceReminderAsync } from "../../../lib/notifications";
 import { supabase } from "../../../lib/supabase";
 import { sendActivityLog } from "../../../lib/tracker";
 
@@ -705,6 +706,9 @@ export default function AbsenMasukScreen() {
 
       setHasCheckedIn(true);
       setIsLoading(false);
+
+      // Batalkan pengingat absen masuk hari ini secara otomatis agar tidak berbunyi lagi
+      cancelTodayAttendanceReminderAsync(localDateOnly).catch(() => {});
 
       fetchHistory();
 

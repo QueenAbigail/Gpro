@@ -14,6 +14,7 @@ import {
 import {
   registerForPushNotificationsAsync,
   sendPushNotificationsAsync,
+  syncAttendanceRemindersAsync,
 } from "../../lib/notifications";
 import { supabase } from "../../lib/supabase";
 
@@ -137,7 +138,10 @@ export default function HomeScreen() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user) await registerForPushNotificationsAsync(user.id);
+      if (user) {
+        await registerForPushNotificationsAsync(user.id);
+        syncAttendanceRemindersAsync(user.id).catch(() => {});
+      }
       fetchHomeData(false);
       fetchUnreadCount();
     };

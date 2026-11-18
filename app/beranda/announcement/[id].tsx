@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,13 +19,10 @@ export default function AnnouncementDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<any>(null);
 
-  useEffect(() => {
-    if (id) {
-      fetchAnnouncementDetail();
-    }
-  }, [id]);
+  const fetchAnnouncementDetail = useCallback(async () => {
+    const announcementId = Array.isArray(id) ? id[0] : id;
+    if (!announcementId) return;
 
-  const fetchAnnouncementDetail = async () => {
     try {
       setLoading(true);
 
@@ -33,7 +30,7 @@ export default function AnnouncementDetailScreen() {
       const { data: announcementData, error } = await supabase
         .from("announcements")
         .select("*")
-        .eq("id", id)
+        .eq("id", announcementId)
         .single();
 
       if (error) throw error;
@@ -63,12 +60,44 @@ export default function AnnouncementDetailScreen() {
         creatorRole,
       });
 
+      // 4. Sinkronisasi status baca (announcement_read_statuses) secara otomatis
+      // Berguna terutama saat dibuka langsung lewat Deep Link Notifikasi (tanpa lewat Beranda)
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (user) {
+          const { data: existingRead } = await supabase
+            .from("announcement_read_statuses")
+            .select("announcementId")
+            .eq("announcementId", announcementId)
+            .eq("userId", user.id)
+            .maybeSingle();
+
+          if (!existingRead) {
+            await supabase.from("announcement_read_statuses").insert({
+              announcementId: announcementId,
+              userId: user.id,
+              readAt: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (readSyncErr) {
+        console.error("Gagal sinkronisasi status baca pengumuman:", readSyncErr);
+      }
     } catch (error) {
       console.error("Gagal mengambil detail pengumuman:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) {
+      fetchAnnouncementDetail();
+    }
+  }, [id, fetchAnnouncementDetail]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "-";

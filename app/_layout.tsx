@@ -7,7 +7,10 @@ import UpdateModal from "../components/UpdateModal";
 import "../global.css";
 import { handleDeviceVerification } from "../lib/device";
 import * as Notifications from "expo-notifications";
-import { registerForPushNotificationsAsync } from "../lib/notifications"; // 💡 1. Import helper notifikasi
+import {
+  clearAttendanceRemindersAsync,
+  registerForPushNotificationsAsync,
+} from "../lib/notifications"; // 💡 1. Import helper notifikasi
 import { supabase } from "../lib/supabase";
 
 export default function RootLayout() {
@@ -39,6 +42,7 @@ export default function RootLayout() {
         registerForPushNotificationsAsync(currentSession.user.id);
       } else {
         // Kalau device nggak valid, paksa logout dan hapus session
+        await clearAttendanceRemindersAsync();
         await supabase.auth.signOut();
         setSession(null);
       }
@@ -136,6 +140,29 @@ export default function RootLayout() {
           return;
         }
 
+        if (notifType === "payroll" || Boolean(data?.payrollId)) {
+          router.push("/beranda/payroll/payroll-page" as any);
+          return;
+        }
+
+        if (notifType === "announcement" || Boolean(data?.announcementId)) {
+          if (data?.announcementId) {
+            router.push(
+              `/beranda/announcement/${String(data.announcementId)}` as any,
+            );
+          } else if (data?.route && typeof data.route === "string") {
+            router.push(data.route as any);
+          } else {
+            router.push("/beranda/announcement" as any);
+          }
+          return;
+        }
+
+        if (notifType === "attendance_reminder") {
+          router.push("/beranda/absen/masuk" as any);
+          return;
+        }
+
         const targetRoute = data?.route;
         if (targetRoute && typeof targetRoute === "string") {
           if (targetRoute.startsWith("/(tabs)")) {
@@ -152,7 +179,7 @@ export default function RootLayout() {
           if (notifType === "patrol") {
             router.push("/(tabs)/patrol" as any);
           } else if (notifType === "payroll") {
-            router.push("/(tabs)/profile" as any);
+            router.push("/beranda/payroll/payroll-page" as any);
           }
         }
       } catch (err) {
