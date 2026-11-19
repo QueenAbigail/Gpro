@@ -20,6 +20,7 @@ export default function ChangePhotoScreen() {
   const [currentAvatar, setCurrentAvatar] = useState<string | null>(null);
 
   // STATE: Buat nyimpen gambar BARU dari galeri (belum di-upload)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,22 +29,16 @@ export default function ChangePhotoScreen() {
 
   const fetchCurrentProfilePhoto = async () => {
     setIsFetchingAvatar(true);
-    console.log(">> 1. Mulai narik data profil...");
     try {
-      // Dapetin ID user yang lagi login
       const {
         data: { user },
         error: authError,
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        console.error(">> ❌ Error Sesi:", authError);
         throw new Error("User tidak ditemukan");
       }
 
-      console.log(">> 2. User ketemu, ID:", user.id);
-
-      // 💡 PERBAIKAN: Tarik kolom 'avatar', bukan 'avatarUrl'
       const { data: profileData, error } = await supabase
         .from("users")
         .select("avatar")
@@ -51,25 +46,18 @@ export default function ChangePhotoScreen() {
         .single();
 
       if (error) {
-        console.error(">> ❌ Error narik data users:", error);
         throw error;
       }
 
-      console.log(">> 3. Data profil dapet nih:", profileData);
-
-      // Cek dengan teliti, beneran ada isinya atau cuma string kosong ""
       if (
         profileData &&
         profileData.avatar &&
         profileData.avatar.trim() !== ""
       ) {
-        console.log(">> ✅ Avatar URL valid! Isinya:", profileData.avatar);
         setCurrentAvatar(profileData.avatar);
-      } else {
-        console.log(">> ⚠️ Avatar kosong atau null di database.");
       }
     } catch (error) {
-      console.log(">> 🚨 Error fatal fetch avatar:", error);
+      console.error("Gagal mengambil foto profil:", error);
     } finally {
       setIsFetchingAvatar(false);
     }

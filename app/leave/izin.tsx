@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Modal, // 👈 Ditambahkan untuk penunjang custom alert
   Platform,
   ScrollView,
@@ -68,6 +67,29 @@ export default function PengajuanIzinScreen() {
   const formatDate = (date: Date) => `${date.getDate().toString().padStart(2, "0")}/${(date.getMonth() + 1).toString().padStart(2, "0")}/${date.getFullYear()}`;
   // Format tanggal buat database (YYYY-MM-DD)
   const formatForDB = (date: Date) => `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}-${date.getDate().toString().padStart(2, "0")}`;
+
+  // Logika otomatis sinkronisasi tanggal mulai & selesai
+  const handleStartDateChange = (selectedDate?: Date) => {
+    setShowStartPicker(false);
+    if (!selectedDate) return;
+
+    const prevStartOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+    const prevEndOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+    const newStartOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()).getTime();
+
+    setStartDate(selectedDate);
+
+    // Jika sebelumnya 1 hari (start == end) atau tanggal selesai tertinggal di belakang
+    if (prevStartOnly === prevEndOnly || prevEndOnly < newStartOnly) {
+      setEndDate(selectedDate);
+    }
+  };
+
+  const handleEndDateChange = (selectedDate?: Date) => {
+    setShowEndPicker(false);
+    if (!selectedDate) return;
+    setEndDate(selectedDate);
+  };
 
   const handleDownloadTemplate = () => {
     // 🔄 Ganti Alert Native ke Custom Alert Info
@@ -210,7 +232,12 @@ export default function PengajuanIzinScreen() {
                 <Text className="flex-1 ml-2 text-slate-800 text-sm">{formatDate(startDate)}</Text>
               </TouchableOpacity>
               {showStartPicker && (
-                <DateTimePicker value={startDate} mode="date" onChange={(_, d) => { setShowStartPicker(false); if (d) setStartDate(d); }} />
+                <DateTimePicker
+                  value={startDate}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={(_, d) => handleStartDateChange(d)}
+                />
               )}
             </View>
             <View className="flex-1">
@@ -220,7 +247,13 @@ export default function PengajuanIzinScreen() {
                 <Text className="flex-1 ml-2 text-slate-800 text-sm">{formatDate(endDate)}</Text>
               </TouchableOpacity>
               {showEndPicker && (
-                <DateTimePicker value={endDate} mode="date" minimumDate={startDate} onChange={(_, d) => { setShowEndPicker(false); if (d) setEndDate(d); }} />
+                <DateTimePicker
+                  value={endDate}
+                  mode="date"
+                  minimumDate={startDate}
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={(_, d) => handleEndDateChange(d)}
+                />
               )}
             </View>
           </View>

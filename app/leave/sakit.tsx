@@ -78,6 +78,29 @@ export default function PengajuanSakitScreen() {
     return `${y}-${m}-${d}`;
   };
 
+  // Logika otomatis sinkronisasi tanggal mulai & selesai
+  const handleStartDateChange = (selectedDate?: Date) => {
+    setShowStartPicker(false);
+    if (!selectedDate) return;
+
+    const prevStartOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+    const prevEndOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+    const newStartOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()).getTime();
+
+    setStartDate(selectedDate);
+
+    // Jika sebelumnya 1 hari (start == end) atau tanggal selesai tertinggal di belakang
+    if (prevStartOnly === prevEndOnly || prevEndOnly < newStartOnly) {
+      setEndDate(selectedDate);
+    }
+  };
+
+  const handleEndDateChange = (selectedDate?: Date) => {
+    setShowEndPicker(false);
+    if (!selectedDate) return;
+    setEndDate(selectedDate);
+  };
+
   const handlePickDocument = async () => {
     const permissionResult =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -307,10 +330,7 @@ export default function PengajuanSakitScreen() {
                   value={startDate}
                   mode="date"
                   display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={(event, selectedDate) => {
-                    setShowStartPicker(false);
-                    if (selectedDate) setStartDate(selectedDate);
-                  }}
+                  onChange={(_, selectedDate) => handleStartDateChange(selectedDate)}
                 />
               )}
             </View>
@@ -335,10 +355,7 @@ export default function PengajuanSakitScreen() {
                   mode="date"
                   minimumDate={startDate}
                   display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={(event, selectedDate) => {
-                    setShowEndPicker(false);
-                    if (selectedDate) setEndDate(selectedDate);
-                  }}
+                  onChange={(_, selectedDate) => handleEndDateChange(selectedDate)}
                 />
               )}
             </View>

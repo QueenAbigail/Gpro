@@ -51,25 +51,13 @@ export const sendActivityLog = async (
         payload.distance = extraData.distance;
     }
 
-    console.log("\n=== 🕵️ DEBUG TRACKER ABSENSI ===");
-    console.log("📍 Payload JSON yang dikirim:");
-    console.log(JSON.stringify(payload, null, 2));
-
     // Tembak ke API
-    const response = await fetch(`${baseUrl}/api/auth/mobile/activity`, {
+    await fetch(`${baseUrl}/api/auth/mobile/activity`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
     });
-
-    // Tangkap balasan buat dikasih ke tim web
-    const statusCode = response.status;
-    const responseBody = await response.text();
-
-    console.log("🚦 Status:", statusCode);
-    console.log("💬 Response:", responseBody);
-    console.log("================================\n");
   } catch (error: any) {
-    console.log("🚨 Gagal mengirim activity log:", error.message);
+    console.error("Gagal mengirim activity log:", error.message);
   }
 };

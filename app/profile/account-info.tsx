@@ -15,45 +15,47 @@ export default function AccountInfoScreen() {
   const [dbUser, setDbUser] = useState<any>(null);
 
   // Fungsi fetch dengan gerbang cache
-  const fetchAccountInfo = async (isManual = false) => {
-    // GERBANG TOL CACHE: Kalau bukan fetch manual dan data udah ada, skip!
-    if (!isManual && dbUser) {
-      console.log("Data akun udah di cache, skip fetch!");
-      return;
-    }
+  const fetchAccountInfo = useCallback(
+    async (isManual = false) => {
+      // GERBANG TOL CACHE: Kalau bukan fetch manual dan data udah ada, skip!
+      if (!isManual && dbUser) {
+        return;
+      }
 
-    try {
-      setLoading(true);
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
+      try {
+        setLoading(true);
+        const { data: authData, error: authError } =
+          await supabase.auth.getUser();
 
-      if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
+        if (authError || !authData.user) throw new Error("Gagal ambil sesi user");
 
-      // 👇 Nanti lu tinggal ubah bagian select() ini kalau ada join tabel dll
-      const { data: accountData, error: accountError } = await supabase
-        .from("users")
-        .select(`*`)
-        .eq("id", authData.user.id)
-        .maybeSingle();
+        // 👇 Nanti lu tinggal ubah bagian select() ini kalau ada join tabel dll
+        const { data: accountData, error: accountError } = await supabase
+          .from("users")
+          .select(`*`)
+          .eq("id", authData.user.id)
+          .maybeSingle();
 
-      if (accountError) throw accountError;
+        if (accountError) throw accountError;
 
-      setDbUser(accountData);
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.message || "Gagal memuat data informasi akun.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        setDbUser(accountData);
+      } catch (error: any) {
+        Alert.alert(
+          "Error",
+          error.message || "Gagal memuat data informasi akun.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [dbUser],
+  );
 
   // Trigger otomatis setiap kali halaman dibuka (tapi ketahan gerbang cache kalau udah ada)
   useFocusEffect(
     useCallback(() => {
       fetchAccountInfo();
-    }, [dbUser]),
+    }, [fetchAccountInfo]),
   );
 
   // Fungsi buat bikin teks jadi bintang-bintang (sensor) kalau lagi disembunyikan
@@ -133,10 +135,10 @@ export default function AccountInfoScreen() {
         />
         <InfoItem
           label="Tempat, Tanggal Lahir"
-          value={
-            (loading ? "Memuat..." : dbUser?.birthCity,
-            dbUser?.birthDate || "Belum ada data")
-          }
+          value={formatTempatTanggalLahir(
+            dbUser?.birthCity,
+            dbUser?.birthDate,
+          )}
         />
         <InfoItem
           label="Jenis Kelamin"

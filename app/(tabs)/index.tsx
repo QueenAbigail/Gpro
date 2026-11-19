@@ -365,6 +365,14 @@ export default function HomeScreen() {
   const fullName = dbUser?.name || "Karyawan";
   const firstName = dbUser?.name ? dbUser.name.split(" ")[0] : "Karyawan";
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 4 && hour < 11) return "Selamat Pagi,";
+    if (hour >= 11 && hour < 15) return "Selamat Siang,";
+    if (hour >= 15 && hour < 18) return "Selamat Sore,";
+    return "Selamat Malam,";
+  };
+
   const userPhotoUri =
     dbUser?.avatar ||
     dbUser?.photoUrl ||
@@ -431,7 +439,7 @@ export default function HomeScreen() {
             />
             <View>
               <Text className="text-gray-600 text-sm font-medium">
-                Selamat Pagi,
+                {getGreeting()}
               </Text>
               <Text className="text-xl font-extrabold text-gray-950">
                 {fullName}

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { 
   ActivityIndicator, 
   Modal, 
@@ -65,16 +65,12 @@ export default function LeaveHistoryScreen() {
     type: "info",
   });
 
-  useEffect(() => {
-    fetchSubmissionHistory();
-  }, []);
-
   // Fungsi pemanggil Custom Alert Cantik
   const showAlert = (title: string, message: string, type: "success" | "error" | "warning" | "info" = "info") => {
     setModalConfig({ visible: true, title, message, type });
   };
 
-  const fetchSubmissionHistory = async () => {
+  const fetchSubmissionHistory = useCallback(async () => {
     try {
       setIsLoading(true);
 
@@ -114,17 +110,18 @@ export default function LeaveHistoryScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchSubmissionHistory();
+  }, [fetchSubmissionHistory]);
   
-  // Helper theme warna status list (Gue bikin upperCase biar matching sama text dari DB)
   const getStatusStyle = (status: string) => {
     switch (status?.toUpperCase()) {
-      case "DISETUJUI":
       case "APPROVED":
         return { text: "text-emerald-600", bg: "bg-emerald-100" };
       case "PENDING":
         return { text: "text-amber-600", bg: "bg-amber-100" };
-      case "DITOLAK":
       case "REJECTED":
         return { text: "text-red-600", bg: "bg-red-100" };
       default:
@@ -205,7 +202,7 @@ export default function LeaveHistoryScreen() {
                 <View className="flex-1">
                   <Text className="text-slate-800 font-bold mb-1">{item.type}</Text>
                   <Text className="text-slate-500 text-xs mb-1">{item.date} • {item.duration}</Text>
-                  <Text className="text-slate-400 text-xs truncate" numberOfLines={1}>"{item.reason}"</Text>
+                  <Text className="text-slate-400 text-xs truncate" numberOfLines={1}>{`"${item.reason}"`}</Text>
                 </View>
 
                 <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>

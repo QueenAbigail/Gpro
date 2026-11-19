@@ -49,12 +49,12 @@ export default function LeaveScreen() {
   );
 
   const getStatusStyle = (status: string) => {
-    switch (status) {
-      case "Disetujui":
+    switch (status?.toUpperCase()) {
+      case "APPROVED":
         return { text: "text-emerald-600", bg: "bg-emerald-100" };
-      case "Pending":
+      case "PENDING":
         return { text: "text-amber-600", bg: "bg-amber-100" };
-      case "Ditolak":
+      case "REJECTED":
         return { text: "text-red-600", bg: "bg-red-100" };
       default:
         return { text: "text-slate-600", bg: "bg-slate-100" };
@@ -189,7 +189,7 @@ export default function LeaveScreen() {
                   {formatDate(item.startDate)}
                 </Text>
                 <Text className="text-slate-400 text-xs" numberOfLines={1}>
-                  "{item.reason}"
+                  {`"${item.reason}"`}
                 </Text>
               </View>
               <View className={`px-3 py-1.5 rounded-full ${statusStyle.bg}`}>

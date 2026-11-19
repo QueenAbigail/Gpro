@@ -63,7 +63,7 @@ export default function TabLayout() {
           tabBarIcon: () => (
             <View
               className="bg-blue-500 w-16 h-16 rounded-full items-center justify-center border-[4px] border-white shadow-md"
-              style={{ top: -15 }}
+              style={{ top: -22 }}
             >
               <Ionicons name="qr-code-outline" size={30} color="white" />
             </View>

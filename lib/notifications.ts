@@ -26,14 +26,12 @@ const updatePushTokenInSupabase = async (
 
     if (error) {
       console.error(
-        "🔴 [PUSH DEBUG] Gagal update status ke Supabase:",
+        "Gagal update status token ke Supabase:",
         error.message,
       );
-    } else {
-      console.log(`🟢 [PUSH DEBUG] Supabase Updated: "${tokenOrStatus}"`);
     }
   } catch (err) {
-    console.error("🔴 [PUSH DEBUG] Error DB update:", err);
+    console.error("Error DB update push token:", err);
   }
 };
 
@@ -42,14 +40,12 @@ export async function registerForPushNotificationsAsync(userId: string) {
 
   // 💡 PERBAIKAN 1: Filter Web Browser biar gak kena error VAPID
   if (Platform.OS === "web") {
-    console.log("⚠️ [PUSH] Push Notification dilewati untuk Web Browser");
     await updatePushTokenInSupabase(userId, "Login via Web Browser");
     return null;
   }
 
   // 💡 PERBAIKAN 2: Filter Emulator
   if (!Device.isDevice) {
-    console.log("⚠️ [PUSH] Harus pakai device fisik untuk Push Notification");
     await updatePushTokenInSupabase(userId, "Bukan Perangkat Fisik (Emulator)");
     return null;
   }
@@ -72,7 +68,6 @@ export async function registerForPushNotificationsAsync(userId: string) {
   }
 
   if (finalStatus !== "granted") {
-    console.log("⚠️ [PUSH] Gagal mendapatkan token: Izin ditolak oleh user!");
     await updatePushTokenInSupabase(userId, "Izin Notifikasi Ditolak");
     return null;
   }
@@ -84,15 +79,13 @@ export async function registerForPushNotificationsAsync(userId: string) {
       Constants.easConfig?.projectId;
 
     if (!projectId) {
-      console.error("🔴 [PUSH] Project ID tidak ditemukan!");
+      console.error("Project ID tidak ditemukan untuk Push Notification!");
       await updatePushTokenInSupabase(userId, "Gagal: Missing Project ID");
       return null;
     }
 
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData?.data;
-
-    console.log("🟢 Expo Push Token didapat:", token);
 
     if (token) {
       await updatePushTokenInSupabase(userId, token);
@@ -102,7 +95,7 @@ export async function registerForPushNotificationsAsync(userId: string) {
       return null;
     }
   } catch (error: any) {
-    console.error("🔴 Error saat registrasi push token:", error);
+    console.error("Error saat registrasi push token:", error);
     // Potong pesan error biar rapi di database
     const errorMessage = error?.message
       ? `Error: ${error.message.slice(0, 50)}...`

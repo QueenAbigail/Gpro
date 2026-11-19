@@ -140,7 +140,6 @@ export default function PatrolInputScreen() {
 
         // 💡 JURUS HYBRID: Bypass hanya berlaku kalau mode DEV dan dipanggil lewat tombol simulasi
         if (__DEV__ && isSimulated === "true") {
-          console.log("🛠️ DEV MODE AKTIF: Bypass GPS...");
           setDbLocationName(`[DEV] ${data.name}`);
 
           if (data.sites) {

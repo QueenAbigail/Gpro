@@ -143,16 +143,13 @@ export default function AmbilBKOScreen() {
 
     const selectedItem = daftarBerhalangan.find((i) => i.id === selectedBKO);
 
-    console.log(">> 🚀 Tombol dipencet! Mulai eksekusi...");
     setIsLoading(true);
 
     try {
-      console.log(">> 1. Cek User ID...");
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Sesi tidak ditemukan");
-      console.log(">> ✅ User ID aman:", user.id);
 
       const payload = {
         leaveId: selectedBKO,
@@ -160,7 +157,6 @@ export default function AmbilBKOScreen() {
         status: "Aktif",
         updatedAt: new Date().toISOString(), // 💡 Wajib diisi biar database gak nolak
       };
-      console.log(">> 2. Payload siap:", payload);
 
       const { data, error } = await supabase
         .from("bko_assignments")
@@ -168,11 +164,9 @@ export default function AmbilBKOScreen() {
         .select();
 
       if (error) {
-        console.error(">> ❌ Error dari Supabase:", error);
+        console.error("Error insert BKO ke Supabase:", error);
         throw error;
       }
-
-      console.log(">> 3. ✅ Sukses insert BKO ke database!");
 
       // Kirim Notifikasi & Push ke Karyawan yang Digantikan, Super Admin/HR, & Upper Level Site
       if (selectedItem) {
