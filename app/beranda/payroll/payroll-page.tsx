@@ -24,9 +24,9 @@ export default function PayrollPage() {
       const { data, error } = await supabase
         .from("payrolls")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("userId", user.id)
         .eq("status", "published")
-        .order("created_at", { ascending: false });
+        .order("createdAt", { ascending: false });
 
       if (error) throw error;
       setPayrollData(data || []);
@@ -110,7 +110,7 @@ export default function PayrollPage() {
               <View className="flex-row items-center">
                 <Ionicons name="calendar-outline" size={16} color="#bfdbfe" />
                 <Text className="text-blue-100 text-xs ml-2">
-                  Tanggal Terbit: {currentPayroll ? formatDate(currentPayroll.publish_date) : "-"}
+                  Tanggal Terbit: {currentPayroll ? formatDate(currentPayroll.publishDate || currentPayroll.publish_date) : "-"}
                 </Text>
               </View>
               <View className={currentPayroll ? "bg-emerald-400/20 px-2 py-1 rounded-md" : "bg-amber-400/20 px-2 py-1 rounded-md"}>
@@ -124,7 +124,7 @@ export default function PayrollPage() {
               activeOpacity={currentPayroll ? 0.8 : 1}
               onPress={() => {
                 if (currentPayroll) {
-                  handleOpenPdf(currentPayroll.pdf_url);
+                  handleOpenPdf(currentPayroll.pdfUrl || currentPayroll.pdf_url);
                 } else {
                   Alert.alert("Info", "Slip gaji bulan ini belum diterbitkan oleh HR.");
                 }
@@ -156,7 +156,7 @@ export default function PayrollPage() {
               {payrollHistory.map((item, index) => (
                 <TouchableOpacity 
                   key={item.id}
-                  onPress={() => handleOpenPdf(item.pdf_url)}
+                  onPress={() => handleOpenPdf(item.pdfUrl || item.pdf_url)}
                   className={`flex-row items-center justify-between p-4 ${
                     index !== payrollHistory.length - 1 ? "border-b border-gray-50" : ""
                   }`}
@@ -167,7 +167,7 @@ export default function PayrollPage() {
                     </View>
                     <View>
                       <Text className="text-gray-900 font-bold text-base mb-0.5">{item.month}</Text>
-                      <Text className="text-gray-400 text-xs">Tgl: {formatDate(item.publish_date)}</Text>
+                      <Text className="text-gray-400 text-xs">Tgl: {formatDate(item.publishDate || item.publish_date)}</Text>
                     </View>
                   </View>
 

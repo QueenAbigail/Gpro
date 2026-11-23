@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -9,8 +9,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Image,
 } from "react-native";
+import {
+  AttendanceNoPhotoModal,
+  AttendancePhotoModal,
+} from "../../../components/AttendancePhotoModal";
 import { supabase } from "../../../lib/supabase";
 
 type AttendanceSummary = {
@@ -517,7 +520,9 @@ export default function AbsenAnggotaScreen() {
           </View>
           <View className="flex-1">
             <Text className="text-white font-bold mb-0.5">
-              {isHOUser ? "Monitoring Pusat (Head Office)" : "Monitoring Harian"}
+              {isHOUser
+                ? "Monitoring Pusat (Head Office)"
+                : "Monitoring Harian"}
             </Text>
             <Text className="text-violet-100 text-xs leading-relaxed">
               {isHOUser
@@ -659,8 +664,7 @@ export default function AbsenAnggotaScreen() {
                         {item.status}
                       </Text>
                     </View>
-                    {(item.status === "Hadir" ||
-                      item.status === "Terlambat") &&
+                    {(item.status === "Hadir" || item.status === "Terlambat") &&
                       item.jamAbsen !== "--:--" && (
                         <Text className="text-gray-400 text-xs ml-2 flex-row items-center font-medium">
                           • Jam {item.jamAbsen}
@@ -670,8 +674,7 @@ export default function AbsenAnggotaScreen() {
                 </View>
 
                 {/* Tombol Aksi Kanan */}
-                {(item.status === "Hadir" ||
-                  item.status === "Terlambat") &&
+                {(item.status === "Hadir" || item.status === "Terlambat") &&
                 item.selfieUrl ? (
                   <View className="bg-emerald-50 w-10 h-10 rounded-full items-center justify-center">
                     <Ionicons name="image-outline" size={20} color="#10b981" />
@@ -748,9 +751,7 @@ export default function AbsenAnggotaScreen() {
                   <View className="flex-row items-center flex-1 mr-3">
                     <View
                       className={`w-10 h-10 rounded-xl items-center justify-center mr-3 ${
-                        selectedSiteId === "ALL"
-                          ? "bg-blue-600"
-                          : "bg-gray-200"
+                        selectedSiteId === "ALL" ? "bg-blue-600" : "bg-gray-200"
                       }`}
                     >
                       <Ionicons
@@ -862,81 +863,25 @@ export default function AbsenAnggotaScreen() {
         </View>
       </Modal>
 
-      {/* --- MODAL DETAIL 1: WARNING BELUM ABSEN / TIDAK ADA SELFIE --- */}
-      <Modal visible={showWarningModal} transparent={true} animationType="fade">
-        <View className="flex-1 justify-center items-center bg-black/50 px-5">
-          <View className="bg-white w-full rounded-3xl p-6 items-center shadow-xl">
-            <View className="w-16 h-16 bg-blue-50 rounded-full items-center justify-center mb-4">
-              <Ionicons name="information-circle" size={40} color="#3b82f6" />
-            </View>
-            <Text className="text-xl font-bold text-slate-900 mb-2">
-              Belum Ada Selfie
-            </Text>
-            <Text className="text-slate-500 text-center mb-6">
-              Personel{" "}
-              <Text className="font-bold text-slate-700">
-                {selectedAnggota?.nama}
-              </Text>{" "}
-              belum melakukan Attendances Selfie atau sedang berhalangan (
-              {selectedAnggota?.status}).
-            </Text>
-            <TouchableOpacity
-              onPress={() => setShowWarningModal(false)}
-              className="w-full bg-slate-900 py-4 rounded-xl items-center"
-            >
-              <Text className="text-white font-bold text-base">Tutup</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* --- REUSABLE MODAL 1: PERINGATAN BELUM ADA FOTO --- */}
+      <AttendanceNoPhotoModal
+        visible={showWarningModal}
+        onClose={() => setShowWarningModal(false)}
+        title="Belum Ada Bukti Kehadiran"
+      />
 
-      {/* --- MODAL DETAIL 2: LIHAT FOTO SELFIE --- */}
-      <Modal visible={showSelfieModal} transparent={true} animationType="slide">
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="bg-white rounded-t-3xl overflow-hidden pb-8">
-            <View className="flex-row justify-between items-center p-5 border-b border-gray-100">
-              <View>
-                <Text className="text-lg font-bold text-gray-900">
-                  Foto Kehadiran
-                </Text>
-                <Text className="text-gray-500 text-sm">
-                  {selectedAnggota?.nama} • {selectedAnggota?.jamAbsen}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setShowSelfieModal(false)}
-                className="w-8 h-8 bg-gray-100 rounded-full items-center justify-center"
-              >
-                <Ionicons name="close" size={20} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-
-            <View className="p-5 items-center">
-              {selectedAnggota?.selfieUrl ? (
-                <View className="w-full rounded-2xl bg-slate-100 overflow-hidden">
-                  <Image
-                    source={{ uri: selectedAnggota.selfieUrl }}
-                    style={{ width: "100%", height: 440 }}
-                    resizeMode="contain"
-                  />
-                </View>
-              ) : (
-                <View className="w-full h-80 rounded-2xl bg-gray-100 items-center justify-center border border-gray-200 border-dashed">
-                  <Ionicons
-                    name="image-outline"
-                    size={48}
-                    color="#cbd5e1"
-                    style={{ marginBottom: 8 }}
-                  />
-                  <Text className="text-gray-400 font-medium">
-                    Gambar tidak ditemukan di database
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* --- REUSABLE MODAL 2: LIHAT FOTO SELFIE --- */}
+      <AttendancePhotoModal
+        visible={showSelfieModal}
+        onClose={() => setShowSelfieModal(false)}
+        title="Foto Kehadiran"
+        subtitle={
+          selectedAnggota
+            ? `${selectedAnggota.nama} • Jam ${selectedAnggota.jamAbsen} (${selectedAnggota.status || "Hadir"})`
+            : undefined
+        }
+        photoUrl={selectedAnggota?.selfieUrl}
+      />
     </View>
   );
 }

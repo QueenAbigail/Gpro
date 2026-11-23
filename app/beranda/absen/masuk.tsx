@@ -15,6 +15,12 @@ import {
 } from "react-native";
 import { captureRef } from "react-native-view-shot";
 
+import AttendanceMap from "../../../components/AttendanceMap";
+import {
+  AttendanceNoPhotoModal,
+  AttendancePhotoModal,
+} from "../../../components/AttendancePhotoModal";
+
 import { formatDateIndo } from "../../../lib/dateUtils";
 import { compressToWebP } from "../../../lib/imageUtils";
 import { getDistance } from "../../../lib/locationUtils";
@@ -109,6 +115,7 @@ export default function AbsenMasukScreen() {
     lat: number;
     lon: number;
   } | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [matchedLocation, setMatchedLocation] = useState<any>(null);
   const [currentAttendanceId, setCurrentAttendanceId] = useState<string | null>(
     null,
@@ -117,6 +124,9 @@ export default function AbsenMasukScreen() {
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [absenHistory, setAbsenHistory] = useState<any[]>([]);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<any>(null);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showNoPhotoModal, setShowNoPhotoModal] = useState(false);
 
   const [isTooEarly, setIsTooEarly] = useState(false);
   const [earliestCheckInStr, setEarliestCheckInStr] = useState("");
@@ -153,7 +163,7 @@ export default function AbsenMasukScreen() {
 
       const { data, error } = await supabase
         .from("attendances")
-        .select("id, date, actualCheckIn, locationId")
+        .select("id, date, actualCheckIn, locationId, selfieCheckIn")
         .eq("userId", authData.user.id)
         .gte("date", startDateString)
         .order("date", { ascending: false });
@@ -223,12 +233,22 @@ export default function AbsenMasukScreen() {
             time: timeString,
             status: statusText,
             type: typeText,
+            selfieUrl: item.selfieCheckIn || null,
           };
         });
         setAbsenHistory(formattedHistory);
       }
     } catch (error) {
       console.log("Gagal narik riwayat absen:", error);
+    }
+  };
+
+  const handleHistoryItemPress = (item: any) => {
+    setSelectedHistoryItem(item);
+    if (item.selfieUrl) {
+      setShowPhotoModal(true);
+    } else {
+      setShowNoPhotoModal(true);
     }
   };
 
@@ -272,6 +292,9 @@ export default function AbsenMasukScreen() {
         lat: location.coords.latitude,
         lon: location.coords.longitude,
       });
+      setGpsAccuracy(
+        location.coords.accuracy ? Math.round(location.coords.accuracy) : null,
+      );
 
       if (location.mocked) {
         await sendActivityLog(
@@ -434,6 +457,7 @@ export default function AbsenMasukScreen() {
         }
 
         let foundValidLocation = null;
+        let closestLocation = null;
         let closestDistance = Infinity;
         let closestRadius = 0;
 
@@ -448,6 +472,7 @@ export default function AbsenMasukScreen() {
           if (distance < closestDistance) {
             closestDistance = distance;
             closestRadius = loc.radius;
+            closestLocation = loc;
           }
 
           if (distance <= loc.radius) {
@@ -462,6 +487,7 @@ export default function AbsenMasukScreen() {
           setLocationMessage(`Zona Valid: ${foundValidLocation.name}`);
         } else {
           setIsLocationValid(false);
+          setMatchedLocation(closestLocation);
           const melenceng = Math.ceil(closestDistance - closestRadius);
 
           await sendActivityLog(
@@ -827,11 +853,11 @@ export default function AbsenMasukScreen() {
           className="flex-1 px-6 pt-6"
           contentContainerStyle={{ paddingBottom: 100 }}
         >
-          <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-8 items-center">
+          <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-5 items-center">
             <Text className="text-gray-500 font-medium mb-2">
               Waktu Saat Ini
             </Text>
-            <View className="flex-row items-end mb-4">
+            <View className="flex-row items-end">
               <Text className="text-5xl font-extrabold text-gray-900 tracking-tight">
                 {hours}:{minutes}
               </Text>
@@ -839,41 +865,76 @@ export default function AbsenMasukScreen() {
                 :{seconds}
               </Text>
             </View>
+          </View>
 
-            <View
-              className={`flex-row items-center px-4 py-2 rounded-full ${
-                isLocationValid ? "bg-emerald-50" : "bg-amber-50"
-              }`}
-            >
-              {isLocationValid ? (
-                <>
-                  <Ionicons name="location" size={16} color="#10b981" />
-                  <Text className="text-emerald-700 text-xs font-bold ml-2">
-                    {locationMessage}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  {userLocation ? (
-                    <Ionicons name="warning" size={16} color="#f59e0b" />
-                  ) : (
-                    <ActivityIndicator size="small" color="#f59e0b" />
-                  )}
-                  <Text className="text-amber-700 text-xs font-bold ml-2">
-                    {locationMessage}
-                  </Text>
-                </>
-              )}
+          {/* 🗺️ KOMPONEN PETA TERKUNCI (100% BEBAS GOOGLE & BEBAS WATERMARK) */}
+          <View className="w-full h-48 rounded-3xl mb-6 overflow-hidden bg-slate-100 border border-slate-200 shadow-md relative">
+            <AttendanceMap
+              userLocation={userLocation}
+              targetLocation={matchedLocation}
+              isLocationValid={isLocationValid}
+              isMobileMode={matchedLocation?.id === "MOBILE_LOC"}
+            />
+
+            {/* 📌 Floating Top Center: Badge Status Lokasi */}
+            <View className="absolute top-2.5 left-0 right-0 items-center z-20 px-3 pointer-events-none">
+              <View
+                className={`flex-row items-center px-3.5 py-1.5 rounded-full shadow-sm border ${
+                  isLocationValid
+                    ? "bg-white/95 border-emerald-200"
+                    : "bg-white/95 border-amber-200"
+                }`}
+              >
+                {isLocationValid ? (
+                  <>
+                    <Ionicons name="location" size={14} color="#10b981" />
+                    <Text className="text-emerald-800 text-xs font-bold ml-1.5">
+                      {locationMessage}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    {userLocation ? (
+                      <Ionicons name="warning" size={14} color="#f59e0b" />
+                    ) : (
+                      <ActivityIndicator size="small" color="#f59e0b" />
+                    )}
+                    <Text className="text-amber-800 text-xs font-bold ml-1.5">
+                      {locationMessage}
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
 
-            {!isLocationValid && userLocation && (
-              <TouchableOpacity onPress={validateLocation} className="mt-3">
-                <Text className="text-blue-500 text-xs font-semibold underline">
-                  Coba Cek GPS Lagi
+            {/* 📌 Floating Bottom Row: Akurasi GPS di Kiri, Peta Terkunci di Kanan */}
+            <View className="absolute bottom-2.5 left-3 right-3 flex-row justify-between items-center z-20 pointer-events-none">
+              <View className="bg-white/95 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm flex-row items-center">
+                <View className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />
+                <Text className="text-slate-700 font-bold text-[10px]">
+                  Akurasi GPS: {gpsAccuracy ? `±${gpsAccuracy}m` : "Optimal"}
                 </Text>
-              </TouchableOpacity>
-            )}
+              </View>
+
+              <View className="bg-slate-900/75 px-2.5 py-1 rounded-full shadow-sm flex-row items-center">
+                <Ionicons name="lock-closed" size={10} color="white" />
+                <Text className="text-white font-medium text-[10px] ml-1">
+                  Peta Terkunci
+                </Text>
+              </View>
+            </View>
           </View>
+
+          {!isLocationValid && userLocation && (
+            <TouchableOpacity
+              onPress={validateLocation}
+              className="mb-6 -mt-3 items-center"
+            >
+              <Text className="text-blue-500 text-xs font-semibold underline">
+                Coba Cek GPS Lagi
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             onPress={handleBukaKamera}
@@ -947,9 +1008,11 @@ export default function AbsenMasukScreen() {
           </View>
 
           {absenHistory.map((item) => (
-            <View
+            <TouchableOpacity
               key={item.id}
-              className="bg-white p-4 rounded-2xl mb-3 border border-gray-100 shadow-sm flex-row items-center"
+              onPress={() => handleHistoryItemPress(item)}
+              activeOpacity={0.7}
+              className="bg-white p-4 rounded-2xl mb-3 border border-gray-100 shadow-sm flex-row items-center active:bg-slate-50"
             >
               <View
                 className={`w-12 h-12 rounded-full items-center justify-center mr-4 ${
@@ -1008,10 +1071,30 @@ export default function AbsenMasukScreen() {
                   {item.status}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
+
+      {/* --- REUSABLE MODAL 1: PERINGATAN BELUM ADA FOTO --- */}
+      <AttendanceNoPhotoModal
+        visible={showNoPhotoModal}
+        onClose={() => setShowNoPhotoModal(false)}
+        title="Belum Ada Bukti Kehadiran"
+      />
+
+      {/* --- REUSABLE MODAL 2: LIHAT FOTO SELFIE PRESENSI --- */}
+      <AttendancePhotoModal
+        visible={showPhotoModal}
+        onClose={() => setShowPhotoModal(false)}
+        title="Foto Kehadiran"
+        subtitle={
+          selectedHistoryItem
+            ? `${selectedHistoryItem.date} • Jam ${selectedHistoryItem.time} (${selectedHistoryItem.status})`
+            : undefined
+        }
+        photoUrl={selectedHistoryItem?.selfieUrl}
+      />
 
       {isCameraOpen && (
         <View className="absolute top-0 left-0 w-full h-full bg-black z-40">
