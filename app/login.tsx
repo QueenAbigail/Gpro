@@ -83,7 +83,7 @@ export default function LoginScreen() {
         setIsErrorModalVisible(true);
         router.setParams({ error: undefined, message: undefined } as any);
       }
-    }, [params?.error, params?.message]),
+    }, [params?.error, params?.message, router]),
   );
 
   const handleLogin = async () => {

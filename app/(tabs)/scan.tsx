@@ -101,7 +101,7 @@ export default function GlobalScanScreen() {
         router.push("/beranda/absen/masuk" as any);
         return;
       }
-    } catch (e) {
+    } catch {
       // Fallback format string
       if (data.startsWith("ABSEN")) {
         router.push("/beranda/absen/masuk" as any);

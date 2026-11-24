@@ -24,11 +24,14 @@ export default function ProfileScreen() {
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
 
   // Fungsi fetch data pintar (SWR Pattern)
-  const fetchUserProfile = async (isManualRefresh = false) => {
+  const fetchUserProfile = useCallback(async (isManualRefresh = false) => {
     try {
-      if (!dbUser && !isManualRefresh) {
-        setLoading(true);
-      }
+      setDbUser((current: any) => {
+        if (!current && !isManualRefresh) {
+          setLoading(true);
+        }
+        return current;
+      });
 
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
@@ -60,12 +63,12 @@ export default function ProfileScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchUserProfile();
-    }, []),
+    }, [fetchUserProfile]),
   );
 
   const onRefresh = () => {
@@ -236,7 +239,7 @@ export default function ProfileScreen() {
       {/* Teks Versi Aplikasi */}
       <View className="items-center pt-2 pb-6">
         <Text className="text-slate-400 text-xs font-semibold">
-          GlobalPro Mobile v1.2.1
+          GlobalPro Mobile v1.3.0
         </Text>
       </View>
 
