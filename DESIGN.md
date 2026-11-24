@@ -26,7 +26,7 @@ Dokumen ini adalah acuan utama (single source of truth) untuk token desain, iden
 ### B. Backgrounds & Surfaces (Latar Belakang & Bidang)
 | Token Semantik | Nilai / Kelas Tailwind | Penggunaan |
 | :--- | :--- | :--- |
-| `bg-app` | `bg-slate-50` (`#f8fafc`) / `bg-sky-50` (`#f0f9ff`) | Background kanvas seluruh layar |
+| `bg-app` | `bg-sky-50` (`#f0f9ff`) | Background kanvas seluruh layar aplikasi (seragam Beranda, Patroli, Izin, Profil) |
 | `surface-card` | `bg-white` (`#ffffff`) | Kartu konten, modul menu, modal dialog |
 | `surface-subdued` | `bg-slate-50` / `bg-gray-50` (`#f9fafb`) | Latar input teks, preview lampiran file |
 | `backdrop-modal` | `bg-black/60` s.d. `bg-black/80` | Latar gelap overlay dialog modal pop-up |

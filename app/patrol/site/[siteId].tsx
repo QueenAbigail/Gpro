@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   ScrollView,
@@ -108,33 +109,14 @@ export default function SitePatrolLocationsScreen() {
   );
 
   return (
-    <View className="flex-1 bg-slate-50">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title={resolvedSiteName} />
+
       <ScrollView
-        className="flex-1 pt-12 px-5"
+        className="flex-1 px-5 pt-2"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        {/* Header */}
-        <View className="flex-row items-center mb-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-          >
-            <Ionicons name="arrow-back" size={20} color="#334155" />
-          </TouchableOpacity>
-          <View className="flex-1">
-            <Text
-              className="text-xl font-bold text-slate-800"
-              numberOfLines={1}
-            >
-              {resolvedSiteName}
-            </Text>
-            <Text className="text-slate-400 text-xs mt-0.5">
-              Daftar titik patroli & laporan hari ini
-            </Text>
-          </View>
-        </View>
-
         {/* Card Titik Patroli */}
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
           <View className="flex-row justify-between items-center mb-4">

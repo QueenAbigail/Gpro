@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Alert,
@@ -105,22 +106,13 @@ export default function ChangePasswordScreen() {
   };
 
   return (
-    <ScrollView
-      className="flex-1 bg-slate-50 pt-16 px-6"
-      contentContainerStyle={{ paddingBottom: 60 }}
-    >
-      {/* Header */}
-      <View className="flex-row items-center mb-8">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-        >
-          <Ionicons name="arrow-back" size={20} color="#334155" />
-        </TouchableOpacity>
-        <Text className="text-xl font-bold text-slate-800">Ubah Password</Text>
-      </View>
-
-      {/* Ilustrasi & Teks Info */}
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Ubah Password" />
+      <ScrollView
+        className="flex-1 px-5 pt-2"
+        contentContainerStyle={{ paddingBottom: 60 }}
+      >
+        {/* Ilustrasi & Teks Info */}
       <View className="items-center mb-8">
         <View className="w-20 h-20 bg-blue-100 rounded-full items-center justify-center mb-4">
           <Ionicons name="shield-checkmark" size={40} color="#3b82f6" />
@@ -235,5 +227,6 @@ export default function ChangePasswordScreen() {
         )}
       </TouchableOpacity>
     </ScrollView>
+  </View>
   );
 }

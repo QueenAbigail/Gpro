@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Alert,
@@ -72,7 +73,7 @@ export default function AbsenPulangScreen() {
         location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
-      } catch (gpsError) {
+      } catch {
         await sendActivityLog(
           "FAILED_GPS_TIMEOUT",
           authInfo.token,
@@ -277,6 +278,7 @@ export default function AbsenPulangScreen() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     validateLocation();
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hours = currentTime.getHours().toString().padStart(2, "0");
@@ -373,23 +375,10 @@ export default function AbsenPulangScreen() {
 
   return (
     <View className="flex-1 bg-sky-50">
-      <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-sky-50 rounded-full items-center justify-center mr-4 active:bg-sky-100"
-        >
-          <Ionicons name="arrow-back" size={20} color="#1e293b" />
-        </TouchableOpacity>
-        <View>
-          <Text className="text-xl font-bold text-gray-900">Absen Pulang</Text>
-          <Text className="text-gray-500 text-xs mt-0.5">
-            Selesaikan shift kerjamu hari ini
-          </Text>
-        </View>
-      </View>
+      <ScreenHeader title="Absen Pulang" className="pt-14 pb-2" />
 
       <ScrollView
-        className="flex-1 px-6 pt-6"
+        className="flex-1 px-6 pt-2"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
         <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-6 items-center">

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   ScrollView,
@@ -95,23 +96,13 @@ export default function MemberPatrolLocationsScreen() {
   }, [id]);
 
   return (
-    <View className="flex-1 bg-slate-50">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Titik Dikunjungi" />
+
       <ScrollView
-        className="flex-1 pt-12 px-5"
+        className="flex-1 px-5 pt-2"
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        <View className="flex-row items-center mb-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-          >
-            <Ionicons name="arrow-back" size={20} color="#334155" />
-          </TouchableOpacity>
-          <Text className="text-xl font-bold text-slate-800">
-            Titik Dikunjungi
-          </Text>
-        </View>
-
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
           <View className="flex-row items-center mb-3">
             <View className="w-10 h-10 rounded-full bg-blue-100 items-center justify-center mr-3">

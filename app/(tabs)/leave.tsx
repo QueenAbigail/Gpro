@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 // 💡 TAMBAHIN useFocusEffect dan useCallback di import
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
+import LeaveDetailModal from "../../components/LeaveDetailModal";
 import {
   ActivityIndicator,
   ScrollView,
@@ -15,6 +16,7 @@ export default function LeaveScreen() {
   const router = useRouter();
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
 
   const fetchLeaves = async () => {
     setLoading(true);
@@ -86,16 +88,13 @@ export default function LeaveScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-slate-50 pt-14 px-5"
+      className="flex-1 bg-sky-50 pt-14 px-5"
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100 }}
     >
       <View className="mb-6">
         <Text className="text-2xl font-extrabold text-slate-950">
           Perizinan
-        </Text>
-        <Text className="text-slate-500 text-xs mt-1">
-          Buat pengajuan sakit, cuti, atau tukar shift
         </Text>
       </View>
 
@@ -172,7 +171,9 @@ export default function LeaveScreen() {
           return (
             <TouchableOpacity
               key={item.id}
-              className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center"
+              onPress={() => setSelectedLeave(item)}
+              activeOpacity={0.7}
+              className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex-row items-center active:bg-slate-50"
             >
               <View className="w-12 h-12 bg-slate-50 rounded-full items-center justify-center mr-4">
                 <Ionicons
@@ -203,6 +204,13 @@ export default function LeaveScreen() {
           );
         })
       )}
+
+      {/* Pop-up Modal Detail Pengajuan */}
+      <LeaveDetailModal
+        visible={!!selectedLeave}
+        leave={selectedLeave}
+        onClose={() => setSelectedLeave(null)}
+      />
     </ScrollView>
   );
 }

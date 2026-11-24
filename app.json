@@ -2,7 +2,7 @@
   "expo": {
     "name": "GlobalPro Mobile",
     "slug": "Globalpro_Mobile",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "globalpromobile",
@@ -19,7 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.promaxima.globalpromobile",
-      "versionCode": 8,
+      "versionCode": 9,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",

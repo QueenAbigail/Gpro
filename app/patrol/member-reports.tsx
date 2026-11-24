@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
-  ActivityIndicator,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -119,24 +120,14 @@ export default function MemberReportsScreen() {
   }, []);
 
   return (
-    <ScrollView
-      className="flex-1 bg-slate-50 pt-12 px-5"
-      contentContainerStyle={{ paddingBottom: 80 }}
-    >
-      {/* Header Halaman */}
-      <View className="flex-row items-center mb-6">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-        >
-          <Ionicons name="arrow-back" size={20} color="#334155" />
-        </TouchableOpacity>
-        <Text className="text-xl font-bold text-slate-800">
-          Laporan Anggota
-        </Text>
-      </View>
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Laporan Anggota" />
 
-      {/* Card Ringkasan Info */}
+      <ScrollView
+        className="flex-1 px-5 pt-2"
+        contentContainerStyle={{ paddingBottom: 80 }}
+      >
+        {/* Card Ringkasan Info */}
       <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
         <Text className="text-slate-800 text-base font-bold mb-1">
           Status Personil Hari Ini
@@ -243,5 +234,6 @@ export default function MemberReportsScreen() {
         })
       )}
     </ScrollView>
+    </View>
   );
 }

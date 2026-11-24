@@ -89,7 +89,7 @@ export default function ProfileScreen() {
 
   if (loading && !dbUser) {
     return (
-      <View className="flex-1 bg-slate-50 items-center justify-center">
+      <View className="flex-1 bg-sky-50 items-center justify-center">
         <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     );
@@ -97,7 +97,7 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-slate-50 pt-16 px-6"
+      className="flex-1 bg-sky-50 pt-16 px-6"
       contentContainerStyle={{ paddingBottom: 100 }}
       showsVerticalScrollIndicator={false} // 👈 Sembunyikan Scrollbar
       refreshControl={

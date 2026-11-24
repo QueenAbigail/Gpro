@@ -187,18 +187,13 @@ export default function PatrolScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-slate-50 pt-14 px-5"
+      className="flex-1 bg-sky-50 pt-14 px-5"
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100 }}
     >
       <View className="mb-6">
         <Text className="text-2xl font-extrabold text-slate-950">
           Laporan Patroli
-        </Text>
-        <Text className="text-slate-500 text-xs mt-1">
-          {isHOUser
-            ? "Pantau titik lokasi & laporan patroli di seluruh site"
-            : "Pantau status titik lokasi & laporan patroli harian"}
         </Text>
       </View>
 

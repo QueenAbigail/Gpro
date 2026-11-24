@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Image as ExpoImage } from "expo-image";
+import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
+import ImageViewerModal from "../../components/ImageViewerModal";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
   ActivityIndicator,
-  Image,
-  Modal,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -13,7 +14,6 @@ import {
 import { supabase } from "../../lib/supabase";
 
 export default function PatrolDetailScreen() {
-  const router = useRouter();
   const { id, patrolId } = useLocalSearchParams();
   const targetPatrolId =
     typeof patrolId === "string" && patrolId.trim().length > 0
@@ -127,23 +127,13 @@ export default function PatrolDetailScreen() {
   }, [id, targetPatrolId]);
 
   return (
-    <View className="flex-1 bg-slate-50">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Detail Laporan" />
+
       <ScrollView
-        className="flex-1 pt-12 px-5"
+        className="flex-1 px-5 pt-2"
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        <View className="flex-row items-center mb-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-          >
-            <Ionicons name="arrow-back" size={20} color="#334155" />
-          </TouchableOpacity>
-          <Text className="text-xl font-bold text-slate-800">
-            Detail Laporan
-          </Text>
-        </View>
-
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
           <View className="flex-row items-center mb-2">
             <View className="w-8 h-8 rounded-full bg-blue-100 items-center justify-center mr-3">
@@ -237,16 +227,12 @@ export default function PatrolDetailScreen() {
                       className="w-32 h-32 bg-slate-100 rounded-xl mr-3 items-center justify-center border border-slate-200 overflow-hidden"
                     >
                       {photo ? (
-                        <Image
+                        <ExpoImage
                           source={{ uri: photo }}
-                          className="w-full h-full"
-                          resizeMode="cover"
-                          onError={(e) =>
-                            console.log(
-                              "Gagal load gambar:",
-                              e.nativeEvent.error,
-                            )
-                          }
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                          transition={200}
+                          cachePolicy="memory-disk"
                         />
                       ) : (
                         <>
@@ -272,33 +258,12 @@ export default function PatrolDetailScreen() {
         )}
       </ScrollView>
 
-      {/* 💡 MODAL PREVIEW GAMBAR FULLSCREEN (DIBIKIN SEMI-TRANSPARAN) */}
-      <Modal
+      {/* MODAL PREVIEW GAMBAR FULLSCREEN (DENGAN PINCH-TO-ZOOM & TAP BACKDROP TO CLOSE) */}
+      <ImageViewerModal
         visible={!!selectedImage}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
-      >
-        {/* 💡 PERBAIKAN: bg-slate-900/70 ngasih efek gelap tapi masih tembus pandang ke belakang */}
-        <View className="flex-1 bg-slate-900/70 justify-center items-center">
-          {/* Tombol Close */}
-          <TouchableOpacity
-            onPress={() => setSelectedImage(null)}
-            className="absolute top-12 right-5 w-10 h-10 bg-white/20 rounded-full items-center justify-center z-50 border border-white/30"
-          >
-            <Ionicons name="close" size={24} color="white" />
-          </TouchableOpacity>
-
-          {/* Gambar Fullscreen */}
-          {selectedImage && (
-            <Image
-              source={{ uri: selectedImage }}
-              className="w-full h-3/4"
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
+        imageUrl={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
     </View>
   );
 }

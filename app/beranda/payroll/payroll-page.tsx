@@ -2,11 +2,10 @@ import React, { useEffect, useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Linking, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context"; 
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import ScreenHeader from "../../../components/ScreenHeader";
 import { supabase } from "../../../lib/supabase"; // Pastikan path supabase ini sesuai di project lu
 
 export default function PayrollPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [payrollData, setPayrollData] = useState<any[]>([]);
 
@@ -73,17 +72,7 @@ export default function PayrollPage() {
 
   return (
     <SafeAreaView className="flex-1 bg-sky-50" edges={['top', 'left', 'right']}>
-      {/* Custom Header */}
-      <View className="flex-row items-center justify-between px-5 py-4">
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-gray-100"
-        >
-          <Ionicons name="chevron-back" size={24} color="#1f2937" />
-        </TouchableOpacity>
-        <Text className="text-lg font-bold text-gray-900">Slip Gaji</Text>
-        <View className="w-10" /> 
-      </View>
+      <ScreenHeader title="Slip Gaji" />
 
       <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
         

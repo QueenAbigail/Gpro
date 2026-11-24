@@ -1,20 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
+import ImageViewerModal from "../../components/ImageViewerModal";
+import ScreenHeader from "../../components/ScreenHeader";
 
 import { compressToWebP } from "../../lib/imageUtils";
 import { getDistance } from "../../lib/locationUtils";
@@ -32,9 +34,11 @@ export default function PatrolInputScreen() {
   const [note, setNote] = useState("");
 
   const [photos, setPhotos] = useState<string[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const MAX_PHOTOS = 9;
 
   const [dbLocationName, setDbLocationName] = useState("");
@@ -349,8 +353,13 @@ export default function PatrolInputScreen() {
           `Gagal menyimpan laporan: ${insertPatrolError.message}`,
         );
 
-      const uploadPromises = photos.map(async (photoUri, index) => {
-        const fileName = `${userId}/${newPatrolId}_ev_${index + 1}.webp`;
+      const uploadedImageUrls: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const photoUri = photos[i];
+        setUploadProgress(
+          `Mengunggah foto bukti (${i + 1}/${photos.length})...`,
+        );
+        const fileName = `${userId}/${newPatrolId}_ev_${i + 1}.webp`;
         let finalUploadData: any;
 
         if (Platform.OS === "web") {
@@ -366,23 +375,45 @@ export default function PatrolInputScreen() {
           finalUploadData = formData;
         }
 
-        const { data: storageData, error: storageError } =
-          await supabase.storage
-            .from("patrol-photos")
-            .upload(fileName, finalUploadData, {
-              contentType:
-                Platform.OS === "web" ? "image/webp" : "multipart/form-data",
-              upsert: true,
-            });
+        // Upload dengan mekanisme retry jika sinyal lapangan sempat terputus
+        let uploadSuccess = false;
+        let lastError: any = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const { data: storageData, error: storageError } =
+              await supabase.storage
+                .from("patrol-photos")
+                .upload(fileName, finalUploadData, {
+                  contentType:
+                    Platform.OS === "web"
+                      ? "image/webp"
+                      : "multipart/form-data",
+                  upsert: true,
+                });
 
-        if (storageError) throw storageError;
-        const { data: publicUrlData } = supabase.storage
-          .from("patrol-photos")
-          .getPublicUrl(storageData.path);
-        return publicUrlData.publicUrl;
-      });
+            if (storageError) throw storageError;
 
-      const uploadedImageUrls = await Promise.all(uploadPromises);
+            const { data: publicUrlData } = supabase.storage
+              .from("patrol-photos")
+              .getPublicUrl(storageData.path);
+
+            uploadedImageUrls.push(publicUrlData.publicUrl);
+            uploadSuccess = true;
+            break;
+          } catch (err) {
+            lastError = err;
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+
+        if (!uploadSuccess) {
+          throw new Error(
+            `Gagal mengunggah foto ke-${i + 1}. Pastikan sinyal stabil dan coba lagi. (${lastError?.message || ""})`,
+          );
+        }
+      }
+
+      setUploadProgress("Menyimpan data laporan...");
 
       const evidenceRecords = uploadedImageUrls.map((url, index) => ({
         id: `pev_${Date.now()}_${index}`,
@@ -551,7 +582,9 @@ export default function PatrolInputScreen() {
   };
 
   return (
-    <View className="flex-1 bg-slate-50">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Form Laporan" />
+
       {isPageLoading ? (
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="#3b82f6" />
@@ -566,23 +599,10 @@ export default function PatrolInputScreen() {
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         >
           <ScrollView
-            className="flex-1 pt-12 px-5"
+            className="flex-1 px-5 pt-2"
             contentContainerStyle={{ flexGrow: 1, paddingBottom: 150 }}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Header Halaman */}
-            <View className="flex-row items-center mb-6">
-              <TouchableOpacity
-                onPress={() => router.back()}
-                className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-              >
-                <Ionicons name="close" size={24} color="#334155" />
-              </TouchableOpacity>
-              <Text className="text-xl font-bold text-slate-800">
-                Form Laporan
-              </Text>
-            </View>
-
             {/* Info Lokasi */}
             <View className="bg-blue-500 rounded-2xl p-5 shadow-sm mb-6 flex-row items-center">
               <View className="w-12 h-12 bg-white/20 rounded-full items-center justify-center mr-4">
@@ -659,13 +679,19 @@ export default function PatrolInputScreen() {
             >
               {photos.map((uri, index) => (
                 <View key={index} className="mr-3 pt-2 pr-2 relative">
-                  <View className="w-28 h-28 bg-slate-200 rounded-2xl border border-slate-300 overflow-hidden">
-                    <Image
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedImage(uri)}
+                    className="w-28 h-28 bg-slate-200 rounded-2xl border border-slate-300 overflow-hidden"
+                  >
+                    <ExpoImage
                       source={{ uri: uri }}
-                      className="w-full h-full"
-                      resizeMode="cover"
+                      style={{ width: "100%", height: "100%" }}
+                      contentFit="cover"
+                      transition={200}
+                      cachePolicy="memory-disk"
                     />
-                  </View>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => handleRemovePhoto(uri)}
                     className="absolute top-0 right-0 w-7 h-7 bg-red-500 rounded-full items-center justify-center border-2 border-white shadow-sm"
@@ -753,11 +779,11 @@ export default function PatrolInputScreen() {
         <View className="flex-1 bg-black/60 justify-center items-center px-6">
           <View className="bg-white p-6 rounded-3xl items-center w-3/4 shadow-2xl">
             <ActivityIndicator size="large" color="#3b82f6" />
-            <Text className="mt-4 text-slate-800 font-bold text-lg">
-              Mengirim Laporan...
+            <Text className="mt-4 text-slate-800 font-bold text-lg text-center">
+              {uploadProgress || "Mengirim Laporan..."}
             </Text>
             <Text className="mt-2 text-slate-500 text-sm text-center">
-              Sedang mengunggah foto & data. Mohon jangan tutup aplikasi.
+              Sedang memproses foto & data. Mohon tunggu sebentar.
             </Text>
           </View>
         </View>
@@ -846,6 +872,13 @@ export default function PatrolInputScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* PREVIEW FOTO HASIL JEPRETAN DENGAN PINCH-TO-ZOOM */}
+      <ImageViewerModal
+        visible={!!selectedImage}
+        imageUrl={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
     </View>
   );
 }

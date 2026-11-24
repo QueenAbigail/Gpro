@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Image as ExpoImage } from "expo-image";
+import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
+import ImageViewerModal from "../../../../components/ImageViewerModal";
+import ScreenHeader from "../../../../components/ScreenHeader";
 import {
     ActivityIndicator,
-    Image,
-    Modal,
     ScrollView,
     Text,
     TouchableOpacity,
@@ -13,8 +14,6 @@ import {
 import { supabase } from "../../../../lib/supabase"; // 💡 Keluar 4 tingkat
 
 export default function MemberLocationDetailScreen() {
-  const router = useRouter();
-
   // Tangkap locationId, userId, dan userName
   const { locationId, userId, userName } = useLocalSearchParams();
 
@@ -84,23 +83,13 @@ export default function MemberLocationDetailScreen() {
   }, [locationId, userId]);
 
   return (
-    <View className="flex-1 bg-slate-50">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Detail Pengecekan" />
+
       <ScrollView
-        className="flex-1 pt-12 px-5"
+        className="flex-1 px-5 pt-2"
         contentContainerStyle={{ paddingBottom: 80 }}
       >
-        <View className="flex-row items-center mb-6">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-slate-100 mr-4 active:bg-slate-50"
-          >
-            <Ionicons name="arrow-back" size={20} color="#334155" />
-          </TouchableOpacity>
-          <Text className="text-xl font-bold text-slate-800">
-            Detail Pengecekan
-          </Text>
-        </View>
-
         {/* INFO LOKASI & NAMA ORANGNYA */}
         <View className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
           <View className="flex-row items-center mb-2">
@@ -174,10 +163,12 @@ export default function MemberLocationDetailScreen() {
                       className="w-32 h-32 bg-slate-100 rounded-xl mr-3 overflow-hidden border border-slate-200"
                     >
                       {photo ? (
-                        <Image
+                        <ExpoImage
                           source={{ uri: photo }}
-                          className="w-full h-full"
-                          resizeMode="cover"
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                          transition={200}
+                          cachePolicy="memory-disk"
                         />
                       ) : (
                         <View className="flex-1 items-center justify-center">
@@ -203,30 +194,12 @@ export default function MemberLocationDetailScreen() {
         )}
       </ScrollView>
 
-      {/* MODAL ZOOM GAMBAR */}
-      <Modal
+      {/* MODAL ZOOM GAMBAR (PINCH-TO-ZOOM & TAP BACKDROP TO CLOSE) */}
+      <ImageViewerModal
         visible={!!selectedImage}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
-      >
-        <View className="flex-1 bg-slate-900/70 justify-center items-center">
-          <TouchableOpacity
-            onPress={() => setSelectedImage(null)}
-            className="absolute top-12 right-5 w-10 h-10 bg-white/20 rounded-full items-center justify-center z-50 border border-white/30"
-          >
-            <Ionicons name="close" size={24} color="white" />
-          </TouchableOpacity>
-
-          {selectedImage && (
-            <Image
-              source={{ uri: selectedImage }}
-              className="w-full h-3/4"
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
+        imageUrl={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
     </View>
   );
 }

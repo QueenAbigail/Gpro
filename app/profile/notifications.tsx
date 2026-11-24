@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import ImageViewerModal from "../../components/ImageViewerModal";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Alert,
@@ -903,20 +905,17 @@ export default function NotificationsScreen() {
   const bkoData = getBkoDetails(activeBkoModal);
 
   return (
-    <View className="flex-1 bg-slate-50">
-      <View className="pt-16 pb-4 px-6 bg-white flex-row items-center justify-between shadow-sm border-b border-slate-100 z-10">
-        <View className="flex-row items-center">
-          <TouchableOpacity onPress={() => router.back()} className="w-10 h-10 bg-slate-50 rounded-full items-center justify-center mr-4 active:bg-slate-100">
-            <Ionicons name="arrow-back" size={20} color="#334155" />
-          </TouchableOpacity>
-          <Text className="text-xl font-bold text-slate-800">Notifikasi</Text>
-        </View>
-        {notifications.some((n) => !n.isRead) && (
-          <TouchableOpacity onPress={markAllAsRead}>
-            <Ionicons name="checkmark-done-circle" size={28} color="#3b82f6" />
-          </TouchableOpacity>
-        )}
-      </View>
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader
+        title="Notifikasi"
+        rightElement={
+          notifications.some((n) => !n.isRead) ? (
+            <TouchableOpacity onPress={markAllAsRead}>
+              <Ionicons name="checkmark-done-circle" size={28} color="#3b82f6" />
+            </TouchableOpacity>
+          ) : null
+        }
+      />
 
       <ScrollView className="flex-1 px-4 pt-4" contentContainerStyle={{ paddingBottom: 80 }}>
         {loading ? (
@@ -1604,31 +1603,12 @@ export default function NotificationsScreen() {
         </View>
       </Modal>
 
-      {/* 🖼️ FULLSCREEN ATTACHMENT PREVIEW LIGHTBOX */}
-      <Modal
+      {/* 🖼️ FULLSCREEN ATTACHMENT PREVIEW LIGHTBOX DENGAN PINCH-TO-ZOOM */}
+      <ImageViewerModal
         visible={!!previewAttachmentUri}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setPreviewAttachmentUri(null)}
-      >
-        <View className="flex-1 bg-black/90 justify-center items-center px-4">
-          <TouchableOpacity
-            onPress={() => setPreviewAttachmentUri(null)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            className="absolute top-14 right-6 w-11 h-11 bg-white/20 rounded-full items-center justify-center z-20"
-          >
-            <Ionicons name="close" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          {previewAttachmentUri && (
-            <Image
-              source={{ uri: previewAttachmentUri }}
-              className="w-full h-[72%] rounded-2xl"
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
+        imageUrl={previewAttachmentUri}
+        onClose={() => setPreviewAttachmentUri(null)}
+      />
 
       {/* 🛡️ BKO BACKUP DETAIL MODAL (POP-UP MELAYANG) */}
       <Modal

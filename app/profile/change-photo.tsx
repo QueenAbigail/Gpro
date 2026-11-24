@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Image,
@@ -80,17 +81,10 @@ export default function ChangePhotoScreen() {
   const imageToDisplay = selectedImage || currentAvatar;
 
   return (
-    <View className="flex-1 bg-slate-50 pt-16 px-6 items-center">
-      <View className="w-full flex-row items-center mb-10">
-        <TouchableOpacity onPress={() => router.back()} className="p-2">
-          <Ionicons name="arrow-back" size={24} color="#334155" />
-        </TouchableOpacity>
-        <Text className="text-xl font-bold text-slate-800 ml-4">
-          Ganti Foto Profil
-        </Text>
-      </View>
-
-      <View className="w-64 h-64 bg-slate-200 rounded-full mb-10 items-center justify-center border-4 border-white shadow-lg overflow-hidden">
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Ganti Foto Profil" />
+      <View className="flex-1 px-6 items-center">
+        <View className="w-64 h-64 bg-slate-200 rounded-full mb-10 items-center justify-center border-4 border-white shadow-lg overflow-hidden">
         {isFetchingAvatar ? (
           // Tampilkan loading spinner khusus di dalam lingkaran pas lagi narik data foto awal
           <ActivityIndicator size="large" color="#3b82f6" />
@@ -119,6 +113,7 @@ export default function ChangePhotoScreen() {
           <Text className="text-white font-bold">Simpan Foto Profil</Text>
         )}
       </TouchableOpacity>
+      </View>
     </View>
   );
 }

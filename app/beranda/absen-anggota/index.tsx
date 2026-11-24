@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Modal,
@@ -41,8 +41,6 @@ const summarizeAttendance = (items: any[]): AttendanceSummary => {
 };
 
 export default function AbsenAnggotaScreen() {
-  const router = useRouter();
-
   // States Utama
   const [daftarAnggota, setDaftarAnggota] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
@@ -491,26 +489,10 @@ export default function AbsenAnggotaScreen() {
 
   return (
     <View className="flex-1 bg-sky-50">
-      {/* --- HEADER --- */}
-      <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-sky-50 rounded-full items-center justify-center mr-4 active:bg-sky-100"
-        >
-          <Ionicons name="arrow-back" size={20} color="#1e293b" />
-        </TouchableOpacity>
-        <View className="flex-1">
-          <Text className="text-xl font-bold text-gray-900">Absen Anggota</Text>
-          <Text className="text-gray-500 text-xs mt-0.5">
-            {isHOUser
-              ? "Monitoring Kehadiran Seluruh Site"
-              : "Pantau kehadiran harian"}
-          </Text>
-        </View>
-      </View>
+      <ScreenHeader title="Absen Anggota" className="pt-14 pb-2" />
 
       <ScrollView
-        className="flex-1 px-5 pt-6"
+        className="flex-1 px-5 pt-2"
         contentContainerStyle={{ paddingBottom: 100 }}
       >
         {/* INFO BANNER KOMANDAN / HO */}

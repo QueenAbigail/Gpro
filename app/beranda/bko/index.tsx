@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Alert,
@@ -48,7 +48,6 @@ const formatRentangTanggal = (start: string, end: string) => {
 };
 
 export default function AmbilBKOScreen() {
-  const router = useRouter();
   const [selectedBKO, setSelectedBKO] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
@@ -211,27 +210,11 @@ export default function AmbilBKOScreen() {
   };
 
   return (
-    <View className="flex-1 bg-slate-50">
-      {/* Header */}
-      <View className="pt-16 pb-4 px-6 bg-white border-b border-slate-100">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="flex-row items-center"
-        >
-          <Ionicons name="arrow-back" size={24} color="#1e293b" />
-          <View className="ml-4">
-            <Text className="text-xl font-bold text-slate-900">
-              Ambil Backup
-            </Text>
-            <Text className="text-slate-500 text-sm">
-              Pilih personel yang digantikan
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+    <View className="flex-1 bg-sky-50">
+      <ScreenHeader title="Ambil Backup" className="pt-14 pb-2" />
 
       <ScrollView
-        className="flex-1 px-5 pt-6"
+        className="flex-1 px-5 pt-2"
         contentContainerStyle={{ paddingBottom: 120 }}
       >
         {/* Banner Info */}

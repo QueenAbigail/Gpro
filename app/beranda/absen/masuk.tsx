@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,6 +19,7 @@ import {
   AttendanceNoPhotoModal,
   AttendancePhotoModal,
 } from "../../../components/AttendancePhotoModal";
+import ScreenHeader from "../../../components/ScreenHeader";
 
 import { formatDateIndo } from "../../../lib/dateUtils";
 import { compressToWebP } from "../../../lib/imageUtils";
@@ -87,8 +87,6 @@ const calculateShiftForDate = (
 };
 
 export default function AbsenMasukScreen() {
-  const router = useRouter();
-
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLoading, setIsLoading] = useState(false);
 
@@ -834,23 +832,10 @@ export default function AbsenMasukScreen() {
       </Modal>
 
       <View className="flex-1">
-        <View className="pt-16 pb-4 px-6 bg-white flex-row items-center border-b border-sky-100 shadow-sm z-10">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-sky-50 rounded-full items-center justify-center mr-4 active:bg-sky-100"
-          >
-            <Ionicons name="arrow-back" size={20} color="#1e293b" />
-          </TouchableOpacity>
-          <View>
-            <Text className="text-xl font-bold text-gray-900">Absen Masuk</Text>
-            <Text className="text-gray-500 text-xs mt-0.5">
-              Validasi GPS & Catat Kehadiran
-            </Text>
-          </View>
-        </View>
+        <ScreenHeader title="Absen Masuk" className="pt-14 pb-2" />
 
         <ScrollView
-          className="flex-1 px-6 pt-6"
+          className="flex-1 px-6 pt-2"
           contentContainerStyle={{ paddingBottom: 100 }}
         >
           <View className="bg-white rounded-3xl p-6 shadow-md border border-gray-100 mb-5 items-center">

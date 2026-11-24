@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import ScreenHeader from "../../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Image,
@@ -13,16 +13,10 @@ import {
 import { supabase } from "../../../lib/supabase"; // Sesuaikan path ini dengan lokasi file Anda
 
 export default function EmployeeListScreen() {
-  const router = useRouter();
-
   const [employees, setEmployees] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    fetchEmployees();
-  }, []);
 
   // Helper untuk mengelompokkan data berdasarkan Nama Site
   const formatSections = (list: any[]) => {
@@ -49,7 +43,7 @@ export default function EmployeeListScreen() {
     }));
   };
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -95,7 +89,11 @@ export default function EmployeeListScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchEmployees();
+  }, [fetchEmployees]);
 
   // Logika Pencarian
   const handleSearch = (text: string) => {
@@ -183,18 +181,7 @@ export default function EmployeeListScreen() {
 
   return (
     <View className="flex-1 bg-sky-50 pt-12">
-      {/* Header */}
-      <View className="flex-row items-center px-5 mb-4">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-sm border border-gray-200 mr-4"
-        >
-          <Ionicons name="chevron-back" size={24} color="#1f2937" />
-        </TouchableOpacity>
-        <Text className="text-xl font-extrabold text-gray-900">
-          Data Karyawan
-        </Text>
-      </View>
+      <ScreenHeader title="Data Karyawan" className="mb-2" />
 
       {/* Search Bar */}
       <View className="px-5 mb-4">

@@ -1,20 +1,20 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Linking,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
+import ScreenHeader from "../../../components/ScreenHeader";
 import { supabase } from "../../../lib/supabase"; // Sesuaikan dengan path lib/supabase kamu
 
 export default function AnnouncementDetailScreen() {
   const { id } = useLocalSearchParams();
-  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<any>(null);
@@ -84,7 +84,10 @@ export default function AnnouncementDetailScreen() {
           }
         }
       } catch (readSyncErr) {
-        console.error("Gagal sinkronisasi status baca pengumuman:", readSyncErr);
+        console.error(
+          "Gagal sinkronisasi status baca pengumuman:",
+          readSyncErr,
+        );
       }
     } catch (error) {
       console.error("Gagal mengambil detail pengumuman:", error);
@@ -117,33 +120,17 @@ export default function AnnouncementDetailScreen() {
       if (supported) {
         await Linking.openURL(detail.attachmentUrl);
       } else {
-        Alert.alert("Gagal Membuka File", "URL lampiran tidak valid atau tidak bisa dibuka.");
+        Alert.alert(
+          "Gagal Membuka File",
+          "URL lampiran tidak valid atau tidak bisa dibuka.",
+        );
       }
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Terjadi kendala saat mencoba mengunduh berkas.");
     }
   };
 
-  if (loading) {
-    return (
-      <View className="flex-1 bg-white items-center justify-center">
-        <ActivityIndicator size="large" color="#0ea5e9" />
-      </View>
-    );
-  }
-
-  if (!detail) {
-    return (
-      <View className="flex-1 bg-white items-center justify-center">
-        <Text className="text-gray-500 font-medium">Pengumuman tidak ditemukan.</Text>
-        <TouchableOpacity onPress={() => router.back()} className="mt-4 px-4 py-2 bg-sky-500 rounded-lg">
-          <Text className="text-white font-bold">Kembali</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const fileName = detail.attachmentUrl
+  const fileName = detail?.attachmentUrl
     ? detail.attachmentUrl.split("/").pop()?.split("?")[0] || "Lampiran_Dokumen"
     : null;
   const fileExtension = fileName
@@ -151,91 +138,112 @@ export default function AnnouncementDetailScreen() {
     : "";
 
   return (
-    <View className="flex-1 bg-white pt-12">
-      {/* Custom Header */}
-      <View className="flex-row items-center px-5 mb-4 border-b border-gray-100 pb-4">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center mr-4"
-        >
-          <Ionicons name="chevron-back" size={24} color="#1f2937" />
-        </TouchableOpacity>
-        <Text className="text-lg font-extrabold text-gray-900 flex-1">
-          Detail Pengumuman
-        </Text>
-      </View>
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Detail Pengumuman" />
 
-      <ScrollView 
-        className="flex-1 px-5 pt-2" 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}
-      >
-        {/* Title & Meta */}
-        <View className="mb-6">
-          <Text className="text-2xl font-black text-gray-900 mb-3 leading-tight">
-            {detail.title}
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#0284c7" />
+          <Text className="text-gray-400 text-xs mt-3 font-medium">
+            Memuat pengumuman...
           </Text>
+        </View>
+      ) : !detail ? (
+        <View className="flex-1 items-center justify-center px-6">
+          <View className="w-16 h-16 rounded-3xl bg-sky-100/80 items-center justify-center mb-3">
+            <Ionicons name="document-text-outline" size={30} color="#0284c7" />
+          </View>
+          <Text className="text-gray-800 font-bold text-base mb-1">
+            Pengumuman Tidak Ditemukan
+          </Text>
+          <Text className="text-gray-400 text-xs text-center max-w-[240px]">
+            Data pengumuman ini mungkin telah dihapus atau kedaluwarsa.
+          </Text>
+        </View>
+      ) : (
+        <ScrollView
+          className="flex-1 px-5 pt-2"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 40 }}
+        >
+          {/* Kartu Utama Pengumuman */}
+          <View className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 mb-6">
+            {/* 1. Judul Pengumuman */}
+            <Text className="text-xl font-extrabold text-gray-900 leading-tight mb-1.5">
+              {detail.title}
+            </Text>
 
-          {/* Badge Nama, Jabatan, & Tanggal */}
-          <View className="flex-row items-center flex-wrap gap-2">
-            {/* Badge Nama */}
-            <View className="flex-row items-center bg-sky-50 px-3 py-1.5 rounded-full">
-              <Ionicons name="person" size={12} color="#0284c7" />
-              <Text className="text-sky-700 text-xs font-bold ml-1">
-                {detail.creatorName}
-              </Text>
-            </View>
-
-            {/* 💼 Badge Posisi / Jabatan (Baru Ditambahkan) */}
-            <View className="flex-row items-center bg-indigo-50 px-3 py-1.5 rounded-full">
-              <Ionicons name="briefcase" size={12} color="#6366f1" />
-              <Text className="text-indigo-700 text-xs font-bold ml-1">
-                {detail.creatorRole}
-              </Text>
-            </View>
-
-            {/* Badge Tanggal */}
-            <View className="flex-row items-center ml-1">
+            {/* 2. Tanggal di Bawah Judul */}
+            <View className="flex-row items-center mb-3.5">
               <Ionicons name="calendar-outline" size={14} color="#9ca3af" />
-              <Text className="text-gray-500 text-xs font-medium ml-1">
+              <Text className="text-xs text-gray-400 font-medium ml-1.5">
                 {formatDate(detail.createdAt)}
               </Text>
             </View>
-          </View>
-        </View>
 
-        {/* Garis Pemisah */}
-        <View className="h-[1px] w-full bg-gray-100 mb-6" />
-
-        {/* Isi Body */}
-        <Text className="text-gray-700 text-base leading-relaxed mb-8">
-          {detail.body}
-        </Text>
-
-        {/* Attachment Card */}
-        {detail.attachmentUrl && (
-          <View className="mb-8">
-            <Text className="text-sm font-bold text-gray-900 mb-3">
-              Lampiran ({fileExtension})
-            </Text>
-            <TouchableOpacity 
-              onPress={handleDownloadAttachment}
-              className="flex-row items-center bg-gray-50 border border-gray-200 p-4 rounded-2xl"
-            >
-              <View className="w-10 h-10 bg-red-100 rounded-lg items-center justify-center mr-4">
-                <Ionicons name="document-text" size={20} color="#dc2626" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-gray-900 font-bold text-sm mb-0.5" numberOfLines={1}>
-                  {fileName}
+            {/* 3. Info Pengirim Ringkas & Ideal */}
+            <View className="bg-slate-50 rounded-xl px-3.5 py-2.5 border border-slate-100 flex-row items-center justify-between mb-4">
+              <View className="flex-row items-center flex-1 mr-2">
+                <Text className="text-xs text-gray-400 font-medium mr-1.5">
+                  Pengirim:
                 </Text>
-                <Text className="text-gray-400 text-xs">Klik untuk mengunduh berkas</Text>
+                <Text
+                  className="text-xs font-bold text-gray-900 flex-1 truncate"
+                  numberOfLines={1}
+                >
+                  {detail.creatorName}
+                </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color="#6b7280" />
-            </TouchableOpacity>
+              <View className="bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                <Text className="text-[11px] font-bold text-blue-700">
+                  {detail.creatorRole}
+                </Text>
+              </View>
+            </View>
+
+            {/* 4. Lampiran Berkas di Atas (Hanya jika ada) */}
+            {detail.attachmentUrl && (
+              <View className="mb-4">
+                <TouchableOpacity
+                  onPress={handleDownloadAttachment}
+                  activeOpacity={0.8}
+                  className="bg-amber-50/60 rounded-2xl p-3 border border-amber-200/80 flex-row items-center justify-between"
+                >
+                  <View className="flex-row items-center flex-1 pr-2">
+                    <View className="w-8 h-8 rounded-lg bg-red-100 items-center justify-center mr-2.5">
+                      <Text className="text-red-600 font-bold text-[10px]">
+                        {fileExtension}
+                      </Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text
+                        className="text-xs font-bold text-gray-900"
+                        numberOfLines={1}
+                      >
+                        {fileName}
+                      </Text>
+                      <Text className="text-[10px] text-gray-400">
+                        Berkas Pendukung
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs font-bold text-blue-600">
+                    Unduh ↗
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Garis Pemisah Halus */}
+            <View className="h-[1px] bg-gray-100 w-full mb-4" />
+
+            {/* 5. Isi Asli Pengumuman */}
+            <Text className="text-gray-800 text-sm leading-relaxed">
+              {detail.body}
+            </Text>
           </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </View>
   );
 }

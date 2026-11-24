@@ -3,6 +3,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import ScreenHeader from "../../components/ScreenHeader";
 import {
   ActivityIndicator,
   Modal, // 👈 Ditambahkan untuk penunjang custom alert
@@ -205,22 +206,10 @@ export default function PengajuanIzinScreen() {
   const theme = getModalTheme();
 
   return (
-    <View className="flex-1 bg-slate-50">
-      {/* Header */}
-      <View className="pt-14 pb-2 px-6 bg-white flex-row items-center">
-       <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-slate-100 rounded-full items-center justify-center mr-3 active:bg-slate-200"
-        >
-          <Ionicons name="arrow-back" size={20} color="#0f172a" />
-        </TouchableOpacity>
-        <View className="flex-1">
-          <Text className="text-2xl font-bold text-slate-900">Pengajuan Izin</Text>
-          <Text className="text-slate-500 text-xs mt-0.5">Isi form & lampirkan dokumen persetujuan</Text>
-        </View>
-      </View>
+    <View className="flex-1 bg-sky-50 pt-12">
+      <ScreenHeader title="Pengajuan Izin" />
 
-      <ScrollView className="flex-1 px-6 pt-6" contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView className="flex-1 px-5 pt-2" contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Section 1: Rentang Waktu */}
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
           <Text className="text-slate-800 font-bold mb-4">Rentang Waktu</Text>
